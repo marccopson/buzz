@@ -17,6 +17,7 @@ use crate::error::CliError;
 /// (Tauri resolves app-data as the platform data dir plus the identifier).
 const PROD_BUNDLE_IDENTIFIER: &str = "com.macsurfacing.workspace";
 const LEGACY_PROD_BUNDLE_IDENTIFIER: &str = "xyz.block.buzz.app";
+const SPROUT_PROD_BUNDLE_IDENTIFIER: &str = "xyz.block.sprout.app";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChannelTemplateRecord {
@@ -67,8 +68,8 @@ fn default_visibility() -> String {
 /// `override_path` (from `--templates-file`) always wins — useful for the dev
 /// store or tests. Otherwise defaults to the prod bundle's app-data dir:
 /// `<platform-data-dir>/com.macsurfacing.workspace/templates/channel-templates.json`.
-/// Falls back to the prior Buzz bundle only when the MAC Workspace store does
-/// not exist, preserving templates across the identifier migration.
+/// Falls back through Buzz and then Sprout when the MAC Workspace store does
+/// not exist, preserving templates across both identifier migrations.
 pub fn resolve_templates_path(override_path: Option<&str>) -> Result<PathBuf, CliError> {
     if let Some(p) = override_path {
         return Ok(PathBuf::from(p));
@@ -88,11 +89,19 @@ fn resolve_templates_path_in(data_dir: &Path) -> PathBuf {
         .join(LEGACY_PROD_BUNDLE_IDENTIFIER)
         .join("templates")
         .join("channel-templates.json");
+    let sprout = data_dir
+        .join(SPROUT_PROD_BUNDLE_IDENTIFIER)
+        .join("templates")
+        .join("channel-templates.json");
 
-    if current.exists() || !legacy.exists() {
+    if current.exists() {
         current
-    } else {
+    } else if legacy.exists() {
         legacy
+    } else if sprout.exists() {
+        sprout
+    } else {
+        current
     }
 }
 
@@ -173,6 +182,41 @@ mod tests {
             .join("channel-templates.json");
         std::fs::create_dir_all(legacy.parent().unwrap()).expect("legacy templates dir");
         std::fs::write(&legacy, "[]").expect("legacy templates store");
+
+        assert_eq!(resolve_templates_path_in(data_dir.path()), legacy);
+    }
+
+    #[test]
+    fn resolve_templates_path_falls_back_to_sprout_bundle() {
+        let data_dir = tempfile::tempdir().expect("data dir");
+        let sprout = data_dir
+            .path()
+            .join(SPROUT_PROD_BUNDLE_IDENTIFIER)
+            .join("templates")
+            .join("channel-templates.json");
+        std::fs::create_dir_all(sprout.parent().unwrap()).expect("Sprout templates dir");
+        std::fs::write(&sprout, "[]").expect("Sprout templates store");
+
+        assert_eq!(resolve_templates_path_in(data_dir.path()), sprout);
+    }
+
+    #[test]
+    fn resolve_templates_path_prefers_buzz_over_sprout() {
+        let data_dir = tempfile::tempdir().expect("data dir");
+        let legacy = data_dir
+            .path()
+            .join(LEGACY_PROD_BUNDLE_IDENTIFIER)
+            .join("templates")
+            .join("channel-templates.json");
+        let sprout = data_dir
+            .path()
+            .join(SPROUT_PROD_BUNDLE_IDENTIFIER)
+            .join("templates")
+            .join("channel-templates.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).expect("Buzz templates dir");
+        std::fs::create_dir_all(sprout.parent().unwrap()).expect("Sprout templates dir");
+        std::fs::write(&legacy, "[]").expect("Buzz templates store");
+        std::fs::write(&sprout, "[]").expect("Sprout templates store");
 
         assert_eq!(resolve_templates_path_in(data_dir.path()), legacy);
     }

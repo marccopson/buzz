@@ -195,24 +195,37 @@ pub(crate) fn run_boot_reset_with_keychain(ctx: ResetContext<'_>) -> ResetOutcom
         }
     }
 
-    // ── Step 2: rename WebKit dir for this build ──────────────────────────────
-    let trash_webkit: Option<PathBuf> = if let Some(ref home) = ctx.home_dir {
-        let bundle_id = app_data_dir
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("buzz");
-        let webkit_dir = home.join("Library").join("WebKit").join(bundle_id);
-        let tw = trash_path(&webkit_dir);
-        if webkit_dir.exists() {
-            if let Err(e) = rename_to_trash(&webkit_dir) {
-                eprintln!("buzz-desktop reset: {e}");
-                // Non-fatal — continue
+    // ── Step 2: rename current + legacy WebKit dirs ───────────────────────────
+    // Legacy WebKit localStorage is an import source during boot, so leaving it
+    // behind would resurrect communities and onboarding state after reset.
+    let mut webkit_dirs = Vec::new();
+    if let Some(ref home) = ctx.home_dir {
+        let webkit_root = home.join("Library").join("WebKit");
+        let mut bundle_ids = Vec::new();
+        if let Some(bundle_id) = app_data_dir.file_name() {
+            bundle_ids.push(bundle_id.to_os_string());
+        }
+        for legacy in &ctx.legacy_app_data_dirs {
+            if let Some(bundle_id) = legacy.file_name() {
+                if !bundle_ids.iter().any(|existing| existing == bundle_id) {
+                    bundle_ids.push(bundle_id.to_os_string());
+                }
             }
         }
-        Some(tw)
-    } else {
-        None
-    };
+
+        for bundle_id in bundle_ids {
+            let webkit_dir = webkit_root.join(bundle_id);
+            let trash = trash_path(&webkit_dir);
+            if webkit_dir.exists() {
+                match rename_to_trash(&webkit_dir) {
+                    Ok(renamed) => webkit_dirs.push((webkit_dir, renamed)),
+                    Err(e) => eprintln!("buzz-desktop reset: {e}"),
+                }
+            } else {
+                webkit_dirs.push((webkit_dir, trash));
+            }
+        }
+    }
 
     // ── Step 3: remove nest, ~/.sprout, ~/.config/buzz-agent, CLI symlink ────
     if let Some(ref nest) = ctx.nest_dir {
@@ -238,16 +251,9 @@ pub(crate) fn run_boot_reset_with_keychain(ctx: ResetContext<'_>) -> ResetOutcom
                 let _ = std::fs::rename(trash, legacy);
             }
         }
-        if let Some(ref home) = ctx.home_dir {
-            let bundle_id = app_data_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("buzz");
-            let webkit_dir = home.join("Library").join("WebKit").join(bundle_id);
-            if let Some(ref tw) = trash_webkit {
-                if tw.exists() {
-                    let _ = std::fs::rename(tw, &webkit_dir);
-                }
+        for (webkit_dir, trash) in &webkit_dirs {
+            if trash.exists() {
+                let _ = std::fs::rename(trash, webkit_dir);
             }
         }
         return ResetOutcome {
@@ -261,8 +267,8 @@ pub(crate) fn run_boot_reset_with_keychain(ctx: ResetContext<'_>) -> ResetOutcom
     for (_, trash) in &trash_legacy {
         let _ = std::fs::remove_dir_all(trash);
     }
-    if let Some(ref tw) = trash_webkit {
-        let _ = std::fs::remove_dir_all(tw);
+    for (_, trash) in &webkit_dirs {
+        let _ = std::fs::remove_dir_all(trash);
     }
 
     // ── Step 6: verify ────────────────────────────────────────────────────────
@@ -272,7 +278,9 @@ pub(crate) fn run_boot_reset_with_keychain(ctx: ResetContext<'_>) -> ResetOutcom
     let nest_gone = ctx.nest_dir.as_ref().map(|n| !n.exists()).unwrap_or(true);
     let trash_app_gone = !trash_app.exists();
     let trash_legacy_gone = trash_legacy.iter().all(|(_, path)| !path.exists());
-    let trash_webkit_gone = trash_webkit.as_ref().map(|p| !p.exists()).unwrap_or(true);
+    let webkit_gone = webkit_dirs
+        .iter()
+        .all(|(path, trash)| !path.exists() && !trash.exists());
 
     if !keychain_ok
         || !app_data_gone
@@ -280,13 +288,13 @@ pub(crate) fn run_boot_reset_with_keychain(ctx: ResetContext<'_>) -> ResetOutcom
         || !nest_gone
         || !trash_app_gone
         || !trash_legacy_gone
-        || !trash_webkit_gone
+        || !webkit_gone
     {
         eprintln!(
             "buzz-desktop reset: verification failed (keychain_wiped={keychain_ok}, \
              app_data_gone={app_data_gone}, legacy_gone={legacy_gone}, nest_gone={nest_gone}, \
              trash_app_gone={trash_app_gone}, trash_legacy_gone={trash_legacy_gone}, \
-             trash_webkit_gone={trash_webkit_gone})"
+             webkit_gone={webkit_gone})"
         );
         return ResetOutcome {
             completed: false,
@@ -664,6 +672,44 @@ mod tests {
         assert!(outcome.completed, "reset must complete");
         assert!(!buzz_dir.exists(), "Buzz app-data dir must be removed");
         assert!(!sprout_dir.exists(), "Sprout app-data dir must be removed");
+    }
+
+    #[test]
+    fn test_current_and_legacy_webkit_sources_removed_on_reset() {
+        let tmp = TempDir::new().unwrap();
+        let app_data = make_app_data(&tmp);
+        let app_support = tmp.path().join("Application Support");
+        let buzz_dir = app_support.join("xyz.block.buzz.app");
+        let sprout_dir = app_support.join("xyz.block.sprout.app");
+        std::fs::create_dir_all(&buzz_dir).unwrap();
+        std::fs::create_dir_all(&sprout_dir).unwrap();
+
+        let webkit_root = tmp.path().join("Library").join("WebKit");
+        let current_webkit = webkit_root.join("com.macsurfacing.workspace");
+        let buzz_webkit = webkit_root.join("xyz.block.buzz.app");
+        let sprout_webkit = webkit_root.join("xyz.block.sprout.app");
+        for path in [&current_webkit, &buzz_webkit, &sprout_webkit] {
+            std::fs::create_dir_all(path).unwrap();
+            std::fs::write(path.join("LocalStorage.db"), b"legacy-state").unwrap();
+        }
+
+        write_sentinel(&app_data).unwrap();
+        let kc = FakeKeychain::ok();
+        let ctx = ResetContext {
+            app_data_dir: &app_data,
+            legacy_app_data_dirs: vec![buzz_dir, sprout_dir],
+            nest_dir: None,
+            keychain: &kc,
+            home_dir: Some(tmp.path().to_path_buf()),
+            is_dev: false,
+        };
+
+        let outcome = run_boot_reset_with_keychain(ctx);
+
+        assert!(outcome.completed, "reset must complete");
+        assert!(!current_webkit.exists(), "current WebKit dir must be removed");
+        assert!(!buzz_webkit.exists(), "Buzz WebKit dir must be removed");
+        assert!(!sprout_webkit.exists(), "Sprout WebKit dir must be removed");
     }
 
     // ── Test 9: unknown error during delete → failed, sentinel kept ────────
