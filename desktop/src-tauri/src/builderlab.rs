@@ -30,8 +30,8 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
     :root {
       color-scheme: light;
       font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      color: #231e1e;
-      background: #d7d72e;
+      color: #2d3445;
+      background: #2e387d;
     }
 
     * {
@@ -45,26 +45,32 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
       display: grid;
       place-items: center;
       padding: 24px;
-      background-color: #d7d72e;
-      background-image: radial-gradient(circle, rgba(35, 30, 30, 0.16) 1.2px, transparent 1.3px);
+      background-color: #2e387d;
+      background-image: radial-gradient(circle, rgba(244, 244, 247, 0.18) 1.2px, transparent 1.3px);
       background-size: 37px 37px;
     }
 
     main {
       width: min(100%, 560px);
       padding: clamp(32px, 8vw, 64px);
-      border: 2px solid #231e1e;
+      border: 2px solid #2d3445;
       border-radius: 28px;
-      background: #d7e7f6;
-      box-shadow: 8px 8px 0 #231e1e;
+      background: #f4f4f7;
+      box-shadow: 8px 8px 0 #2d3445;
     }
 
-    .bee {
-      display: block;
+    .brand {
+      display: grid;
       width: 72px;
-      height: auto;
+      height: 72px;
+      place-items: center;
       margin-bottom: 40px;
-      color: #231e1e;
+      border-radius: 18px;
+      color: #f4f4f7;
+      background: #2e387d;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.04em;
     }
 
     .eyebrow {
@@ -74,7 +80,8 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
       margin: 0 0 20px;
       padding: 6px 14px;
       border-radius: 999px;
-      background: #d7d72e;
+      color: #f4f4f7;
+      background: #c24837;
       font-size: 14px;
       font-weight: 600;
       letter-spacing: 0.01em;
@@ -108,8 +115,9 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
         box-shadow: 6px 6px 0 #231e1e;
       }
 
-      .bee {
+      .brand {
         width: 60px;
+        height: 60px;
         margin-bottom: 32px;
       }
     }
@@ -117,24 +125,10 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
 </head>
 <body>
   <main>
-    <svg class="bee" viewBox="0 0 466 309" role="img" aria-label="Buzz">
-      <defs>
-        <mask id="bee-mask">
-          <rect width="466" height="309" fill="black"/>
-          <circle cx="91.7" cy="154.5" r="91.7" fill="white"/>
-          <circle cx="374.3" cy="154.5" r="91.7" fill="white"/>
-          <rect x="128" width="210" height="309" rx="34" fill="white"/>
-          <ellipse cx="193.3" cy="84.4" rx="27" ry="27" fill="black"/>
-          <ellipse cx="276" cy="84.4" rx="27" ry="27" fill="black"/>
-          <rect x="166.3" y="157.2" width="136.9" height="38.3" rx="5" fill="black"/>
-          <rect x="166.9" y="235.1" width="136.2" height="37.6" rx="5" fill="black"/>
-        </mask>
-      </defs>
-      <rect width="466" height="309" fill="currentColor" mask="url(#bee-mask)"/>
-    </svg>
+    <div class="brand" role="img" aria-label="MAC Workspace">MW</div>
     <div class="eyebrow">Authentication complete</div>
     <h1>You&rsquo;re signed in.</h1>
-    <p>You can close this window and return to Buzz.</p>
+    <p>You can close this window and return to MAC Workspace.</p>
   </main>
 </body>
 </html>"#;
@@ -645,14 +639,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn auth_complete_page_uses_buzz_brand() {
+    fn auth_complete_page_uses_mac_workspace_brand() {
         for expected in [
             "<title>MAC Workspace authentication complete</title>",
-            "#d7d72e",
-            "#231e1e",
-            "#d7e7f6",
-            "aria-label=\"Buzz\"",
-            "return to Buzz",
+            "#2e387d",
+            "#c24837",
+            "#f4f4f7",
+            "aria-label=\"MAC Workspace\"",
+            "return to MAC Workspace",
         ] {
             assert!(
                 AUTH_COMPLETE_HTML.contains(expected),

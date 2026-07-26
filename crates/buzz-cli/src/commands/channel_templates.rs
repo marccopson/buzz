@@ -15,7 +15,8 @@ use crate::error::CliError;
 /// Tauri bundle identifier for the production desktop app. `dirs::data_dir()`
 /// joined with this segment matches `app.path().app_data_dir()` exactly
 /// (Tauri resolves app-data as the platform data dir plus the identifier).
-const PROD_BUNDLE_IDENTIFIER: &str = "xyz.block.buzz.app";
+const PROD_BUNDLE_IDENTIFIER: &str = "com.macsurfacing.workspace";
+const LEGACY_PROD_BUNDLE_IDENTIFIER: &str = "xyz.block.buzz.app";
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChannelTemplateRecord {
@@ -65,7 +66,9 @@ fn default_visibility() -> String {
 ///
 /// `override_path` (from `--templates-file`) always wins — useful for the dev
 /// store or tests. Otherwise defaults to the prod bundle's app-data dir:
-/// `<platform-data-dir>/xyz.block.buzz.app/templates/channel-templates.json`.
+/// `<platform-data-dir>/com.macsurfacing.workspace/templates/channel-templates.json`.
+/// Falls back to the prior Buzz bundle only when the MAC Workspace store does
+/// not exist, preserving templates across the identifier migration.
 pub fn resolve_templates_path(override_path: Option<&str>) -> Result<PathBuf, CliError> {
     if let Some(p) = override_path {
         return Ok(PathBuf::from(p));
@@ -73,17 +76,31 @@ pub fn resolve_templates_path(override_path: Option<&str>) -> Result<PathBuf, Cl
     let data_dir = dirs::data_dir().ok_or_else(|| {
         CliError::Other("could not resolve platform app-data directory".to_string())
     })?;
-    Ok(data_dir
+    Ok(resolve_templates_path_in(&data_dir))
+}
+
+fn resolve_templates_path_in(data_dir: &Path) -> PathBuf {
+    let current = data_dir
         .join(PROD_BUNDLE_IDENTIFIER)
         .join("templates")
-        .join("channel-templates.json"))
+        .join("channel-templates.json");
+    let legacy = data_dir
+        .join(LEGACY_PROD_BUNDLE_IDENTIFIER)
+        .join("templates")
+        .join("channel-templates.json");
+
+    if current.exists() || !legacy.exists() {
+        current
+    } else {
+        legacy
+    }
 }
 
 /// Load and parse the channel-templates store from `path`.
 fn load_templates(path: &Path) -> Result<Vec<ChannelTemplateRecord>, CliError> {
     if !path.exists() {
         return Err(CliError::NotFound(format!(
-            "no channel templates store found at {} (create a template in Buzz Desktop first, \
+            "no channel templates store found at {} (create a template in MAC Workspace first, \
              or pass --templates-file)",
             path.display()
         )));
@@ -143,7 +160,42 @@ mod tests {
     #[test]
     fn resolve_templates_path_defaults_to_prod_bundle() {
         let path = resolve_templates_path(None).unwrap();
-        assert!(path.ends_with("xyz.block.buzz.app/templates/channel-templates.json"));
+        assert!(path.ends_with("com.macsurfacing.workspace/templates/channel-templates.json"));
+    }
+
+    #[test]
+    fn resolve_templates_path_falls_back_to_legacy_bundle() {
+        let data_dir = tempfile::tempdir().expect("data dir");
+        let legacy = data_dir
+            .path()
+            .join(LEGACY_PROD_BUNDLE_IDENTIFIER)
+            .join("templates")
+            .join("channel-templates.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).expect("legacy templates dir");
+        std::fs::write(&legacy, "[]").expect("legacy templates store");
+
+        assert_eq!(resolve_templates_path_in(data_dir.path()), legacy);
+    }
+
+    #[test]
+    fn resolve_templates_path_prefers_mac_workspace_bundle() {
+        let data_dir = tempfile::tempdir().expect("data dir");
+        let legacy = data_dir
+            .path()
+            .join(LEGACY_PROD_BUNDLE_IDENTIFIER)
+            .join("templates")
+            .join("channel-templates.json");
+        let current = data_dir
+            .path()
+            .join(PROD_BUNDLE_IDENTIFIER)
+            .join("templates")
+            .join("channel-templates.json");
+        std::fs::create_dir_all(legacy.parent().unwrap()).expect("legacy templates dir");
+        std::fs::create_dir_all(current.parent().unwrap()).expect("current templates dir");
+        std::fs::write(&legacy, "[]").expect("legacy templates store");
+        std::fs::write(&current, "[]").expect("current templates store");
+
+        assert_eq!(resolve_templates_path_in(data_dir.path()), current);
     }
 
     #[test]
