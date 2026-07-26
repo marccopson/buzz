@@ -426,7 +426,7 @@ function ThemeSettingsCard() {
 
   // Buzz themes pin a neutral accent (GitHub black in light, white in dark),
   // so the accent picker is hidden while a Buzz theme is active. `themeName` is
-  // the effective theme, so this also covers System mode resolving to Buzz.
+  // the effective theme, so this also covers System mode resolving to MAC Workspace.
   const accentPickerHidden = isBuzzTheme(themeName);
   const shouldReduceMotion = useReducedMotion();
 

@@ -42,7 +42,7 @@ type DefaultConfigStepProps = {
 
 function formatHarnessLabel(runtime: AcpRuntimeCatalogEntry | undefined) {
   if (!runtime) return "Select a harness";
-  return runtime.id === "buzz-agent" ? "Buzz" : runtime.label;
+  return runtime.id === "buzz-agent" ? "MAC Workspace" : runtime.label;
 }
 
 function AgentDefaultsSection({

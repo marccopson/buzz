@@ -1,5 +1,18 @@
 # Buzz Mobile
 
+## MAC Workspace application identity
+
+MAC Workspace uses new mobile identifiers (`com.macsurfacing.workspace`) and is
+currently a pre-release clean-install application. Android and iOS sandbox
+boundaries do not permit an app with a new identifier to read another app's
+SharedPreferences, application container or default keychain scope.
+
+Do not publish MAC Workspace as an in-place Buzz mobile upgrade. Before any
+public release, either confirm there are no MAC-managed Buzz mobile installs to
+migrate or define an export/import hand-off backed by the original signing
+identity. This does not affect desktop migration, which explicitly imports the
+legacy Buzz and Sprout data locations.
+
 Flutter mobile client for Buzz.
 
 ## Setup

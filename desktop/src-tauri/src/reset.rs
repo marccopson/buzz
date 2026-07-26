@@ -184,14 +184,19 @@ pub(crate) fn run_boot_reset_with_keychain(ctx: ResetContext<'_>) -> ResetOutcom
     // ── Step 1b: rename legacy App Support dirs (Buzz/Sprout import sources) ─
     let mut trash_legacy = Vec::new();
     for legacy in &ctx.legacy_app_data_dirs {
+        let trash = trash_path(legacy);
         if legacy.exists() {
             match rename_to_trash(legacy) {
-                Ok(trash) => trash_legacy.push((legacy.clone(), trash)),
+                Ok(renamed) => trash_legacy.push((legacy.clone(), renamed)),
                 Err(e) => {
                     eprintln!("buzz-desktop reset: {e}");
                     // Non-fatal for a legacy dir — continue
                 }
             }
+        } else {
+            // A prior boot may have crashed after the atomic rename. Retain
+            // the deterministic trash path so this retry cleans and verifies it.
+            trash_legacy.push((legacy.clone(), trash));
         }
     }
 
@@ -854,6 +859,36 @@ mod tests {
             !sentinel_path(&app_data).exists(),
             "sentinel must be cleared"
         );
+    }
+
+    #[test]
+    fn test_crash_retry_cleans_prior_legacy_trash() {
+        let tmp = TempDir::new().unwrap();
+        let app_support = tmp.path().join("Application Support");
+        let app_data = app_support.join("com.macsurfacing.workspace");
+        std::fs::create_dir_all(&app_data).unwrap();
+        write_sentinel(&app_data).unwrap();
+
+        let legacy = app_support.join("xyz.block.sprout.app");
+        let legacy_trash = trash_path(&legacy);
+        std::fs::create_dir_all(&legacy_trash).unwrap();
+        std::fs::write(legacy_trash.join("identity.key"), b"old-key").unwrap();
+
+        let kc = FakeKeychain::ok();
+        let ctx = ResetContext {
+            app_data_dir: &app_data,
+            legacy_app_data_dirs: vec![legacy.clone()],
+            nest_dir: None,
+            keychain: &kc,
+            home_dir: None,
+            is_dev: false,
+        };
+
+        let outcome = run_boot_reset_with_keychain(ctx);
+
+        assert!(outcome.completed, "retry must complete");
+        assert!(!legacy.exists(), "legacy source must remain absent");
+        assert!(!legacy_trash.exists(), "prior legacy trash must be cleaned");
     }
 
     // ── Test 13: keychain-fail restores all dirs, retry cleans trash ──────
