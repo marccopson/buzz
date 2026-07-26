@@ -19,7 +19,7 @@ void main() {
         find.image(const AssetImage('assets/images/buzz-icon.png')),
         findsOneWidget,
       );
-      expect(find.text('Welcome to Buzz'), findsOneWidget);
+      expect(find.text('Welcome to MAC Workspace'), findsOneWidget);
       expect(find.text('Scan QR Code'), findsOneWidget);
       expect(find.text('or paste pairing code'), findsOneWidget);
       expect(find.text('Connect'), findsOneWidget);

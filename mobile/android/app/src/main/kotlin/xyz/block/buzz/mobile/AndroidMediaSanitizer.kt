@@ -1,4 +1,4 @@
-package xyz.block.buzz.mobile
+package com.macsurfacing.workspace
 
 import java.io.ByteArrayOutputStream
 import java.nio.charset.StandardCharsets

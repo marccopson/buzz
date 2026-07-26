@@ -12,42 +12,42 @@ fn appimage_binary_matches_truncated_linux_comm_name() {
 #[test]
 fn identifier_prefix_does_not_match_longer_id() {
     // DMG identifier should NOT match inside a dev desktop's config JSON.
-    let buf = br#""identifier":"xyz.block.buzz.app.dev""#;
-    let id = b"xyz.block.buzz.app";
+    let buf = br#""identifier":"com.macsurfacing.workspace.dev""#;
+    let id = b"com.macsurfacing.workspace";
     assert!(!super::buffer_contains_identifier(buf, id));
 }
 
 #[test]
 fn identifier_prefix_does_not_match_worktree_slug() {
     // Main dev identifier should NOT match inside a worktree desktop's buffer.
-    let buf = br#""identifier":"xyz.block.buzz.app.dev.my-branch""#;
-    let id = b"xyz.block.buzz.app.dev";
+    let buf = br#""identifier":"com.macsurfacing.workspace.dev.my-branch""#;
+    let id = b"com.macsurfacing.workspace.dev";
     assert!(!super::buffer_contains_identifier(buf, id));
 }
 
 #[test]
 fn identifier_exact_match_with_quote_boundary() {
     // Exact match followed by closing quote — should match.
-    let buf = br#""identifier":"xyz.block.buzz.app.dev""#;
-    let id = b"xyz.block.buzz.app.dev";
+    let buf = br#""identifier":"com.macsurfacing.workspace.dev""#;
+    let id = b"com.macsurfacing.workspace.dev";
     assert!(super::buffer_contains_identifier(buf, id));
 }
 
 #[test]
 fn identifier_match_with_null_boundary() {
     // In KERN_PROCARGS2, entries are null-delimited.
-    let mut buf = b"BUZZ_MANAGED_AGENT=xyz.block.buzz.app.dev".to_vec();
+    let mut buf = b"BUZZ_MANAGED_AGENT=com.macsurfacing.workspace.dev".to_vec();
     buf.push(0);
     buf.extend_from_slice(b"OTHER_VAR=value");
-    let id = b"xyz.block.buzz.app.dev";
+    let id = b"com.macsurfacing.workspace.dev";
     assert!(super::buffer_contains_identifier(&buf, id));
 }
 
 #[test]
 fn identifier_exact_match_at_end_of_buffer() {
     // Exact match with end-of-buffer as the boundary — Thufir's case 1.
-    let buf = b"xyz.block.buzz.app.dev";
-    let id = b"xyz.block.buzz.app.dev";
+    let buf = b"com.macsurfacing.workspace.dev";
+    let id = b"com.macsurfacing.workspace.dev";
     assert!(super::buffer_contains_identifier(buf, id));
 }
 
@@ -55,10 +55,10 @@ fn identifier_exact_match_at_end_of_buffer() {
 fn longer_id_matches_when_short_prefix_also_present() {
     // Searching for the longer ID finds it even when a shorter prefix token
     // appears earlier — Thufir's "longer-of-prefix must match" case.
-    let mut buf = b"xyz.block.buzz.app".to_vec();
+    let mut buf = b"com.macsurfacing.workspace".to_vec();
     buf.push(0);
-    buf.extend_from_slice(br#""identifier":"xyz.block.buzz.app.dev""#);
-    let id = b"xyz.block.buzz.app.dev";
+    buf.extend_from_slice(br#""identifier":"com.macsurfacing.workspace.dev""#);
+    let id = b"com.macsurfacing.workspace.dev";
     assert!(super::buffer_contains_identifier(&buf, id));
 }
 
@@ -77,12 +77,12 @@ fn marker_entry_is_namespaced_by_instance_id() {
     // format and guards against a dev build (`...app.dev`) matching a
     // release build's (`...app`) agents.
     assert_eq!(
-        super::buzz_marker_entry("xyz.block.buzz.app"),
-        b"BUZZ_MANAGED_AGENT=xyz.block.buzz.app".to_vec()
+        super::buzz_marker_entry("com.macsurfacing.workspace"),
+        b"BUZZ_MANAGED_AGENT=com.macsurfacing.workspace".to_vec()
     );
     assert_ne!(
-        super::buzz_marker_entry("xyz.block.buzz.app"),
-        super::buzz_marker_entry("xyz.block.buzz.app.dev")
+        super::buzz_marker_entry("com.macsurfacing.workspace"),
+        super::buzz_marker_entry("com.macsurfacing.workspace.dev")
     );
 }
 

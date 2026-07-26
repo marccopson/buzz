@@ -300,7 +300,7 @@ export function SettingsView({
               data-buzz-sidebar-secondary
               data-testid="settings-version"
             >
-              v{appVersion}
+              MAC Workspace v{appVersion} · Powered by Buzz
             </p>
           ) : null}
         </SidebarFooter>

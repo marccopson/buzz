@@ -2,13 +2,13 @@
 //!
 //! **Worktree sync** (`sync_shared_agent_data`): Per-launch symlink creation
 //! from the current worktree data directory to the canonical dev data
-//! directory (`xyz.block.buzz.app.dev`). Only runs when
+//! directory (`com.macsurfacing.workspace.dev`). Only runs when
 //! `BUZZ_SHARE_IDENTITY=1` and `BUZZ_PRIVATE_KEY` is set. All dev
 //! instances share the same physical files — edits in any worktree are
 //! immediately visible to all others.
 //!
 //! **Command reconciliation** (`reconcile_legacy_command_names`): Per-launch
-//! fix-up of persisted built-in command names from the Sprout→Buzz rename.
+//! fix-up of persisted built-in command names inherited from Buzz.
 //!
 //! **Provider reconciliation** (`reconcile_provider_mcp_commands`): Per-launch
 //! fix-up of `mcp_command` values in `managed-agents.json` against the
@@ -21,9 +21,11 @@ use tauri::Manager;
 
 use crate::util::replace_with_symlink;
 
-const CANONICAL_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
-const LEGACY_CANONICAL_DEV_IDENTIFIER: &str = "xyz.block.sprout.app.dev";
-const LEGACY_RELEASE_IDENTIFIER: &str = "xyz.block.sprout.app";
+const CANONICAL_DEV_IDENTIFIER: &str = "com.macsurfacing.workspace.dev";
+const BUZZ_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
+const BUZZ_RELEASE_IDENTIFIER: &str = "xyz.block.buzz.app";
+const SPROUT_DEV_IDENTIFIER: &str = "xyz.block.sprout.app.dev";
+const SPROUT_RELEASE_IDENTIFIER: &str = "xyz.block.sprout.app";
 
 /// JSON files symlinked from worktree data directories to the canonical
 /// dev data directory. Only data files — never `agent-pids/` or `logs/`.
@@ -41,8 +43,8 @@ const SHARED_AGENT_DIRS: &[&str] = &["agents/teams"];
 
 /// Returns `true` when `name` is a dev data dir name — i.e. it is exactly the
 /// canonical dev identifier or a worktree variant separated by a `.` (e.g.
-/// `xyz.block.buzz.app.dev.my-branch`). Rejects prefix-collisions such as
-/// `xyz.block.buzz.app.developer`. This is the authoritative dev/prod
+/// `com.macsurfacing.workspace.dev.my-branch`). Rejects prefix-collisions such as
+/// `com.macsurfacing.workspace.developer`. This is the authoritative dev/prod
 /// discriminator shared by `run_boot_migrations`, `sync_shared_agent_data`,
 /// and `reconcile_target_dir`.
 pub(crate) fn is_dev_data_dir_name(name: &str) -> bool {
@@ -56,16 +58,38 @@ fn canonical_dev_data_dir(current: &Path) -> Option<PathBuf> {
     current.parent().map(|p| p.join(CANONICAL_DEV_IDENTIFIER))
 }
 
-pub(crate) fn legacy_app_data_dir(current: &Path) -> Option<PathBuf> {
-    let name = current.file_name()?.to_str()?;
-    let legacy_name = if name.starts_with(CANONICAL_DEV_IDENTIFIER) {
-        name.replacen(CANONICAL_DEV_IDENTIFIER, LEGACY_CANONICAL_DEV_IDENTIFIER, 1)
-    } else if name.starts_with("xyz.block.buzz.app") {
-        name.replacen("xyz.block.buzz.app", LEGACY_RELEASE_IDENTIFIER, 1)
-    } else {
-        return None;
+pub(crate) fn legacy_app_data_dirs(current: &Path) -> Vec<PathBuf> {
+    let Some(parent) = current.parent() else {
+        return Vec::new();
     };
-    current.parent().map(|parent| parent.join(legacy_name))
+    let Some(name) = current.file_name().and_then(|name| name.to_str()) else {
+        return Vec::new();
+    };
+    let legacy_names = if name.starts_with(CANONICAL_DEV_IDENTIFIER) {
+        vec![
+            name.replacen(CANONICAL_DEV_IDENTIFIER, BUZZ_DEV_IDENTIFIER, 1),
+            name.replacen(CANONICAL_DEV_IDENTIFIER, SPROUT_DEV_IDENTIFIER, 1),
+        ]
+    } else if name.starts_with("com.macsurfacing.workspace") {
+        vec![
+            name.replacen(
+                "com.macsurfacing.workspace",
+                BUZZ_RELEASE_IDENTIFIER,
+                1,
+            ),
+            name.replacen(
+                "com.macsurfacing.workspace",
+                SPROUT_RELEASE_IDENTIFIER,
+                1,
+            ),
+        ]
+    } else {
+        return Vec::new();
+    };
+    legacy_names
+        .into_iter()
+        .map(|legacy_name| parent.join(legacy_name))
+        .collect()
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -200,23 +224,22 @@ pub fn migrate_legacy_app_data_dir(app: &tauri::AppHandle) {
             return;
         }
     };
-    let Some(legacy_dir) = legacy_app_data_dir(&current_dir) else {
-        return;
-    };
-    if !legacy_dir.exists() {
-        return;
-    }
-    match copy_dir_all(&legacy_dir, &current_dir) {
-        Ok(()) => eprintln!(
-            "buzz-desktop: app-data-migration: copied legacy data from {} to {}",
-            legacy_dir.display(),
-            current_dir.display()
-        ),
-        Err(error) => eprintln!(
-            "buzz-desktop: app-data-migration: failed to copy {} to {}: {error}",
-            legacy_dir.display(),
-            current_dir.display()
-        ),
+    for legacy_dir in legacy_app_data_dirs(&current_dir) {
+        if !legacy_dir.exists() {
+            continue;
+        }
+        match copy_dir_all(&legacy_dir, &current_dir) {
+            Ok(()) => eprintln!(
+                "buzz-desktop: app-data-migration: copied legacy data from {} to {}",
+                legacy_dir.display(),
+                current_dir.display()
+            ),
+            Err(error) => eprintln!(
+                "buzz-desktop: app-data-migration: failed to copy {} to {}: {error}",
+                legacy_dir.display(),
+                current_dir.display()
+            ),
+        }
     }
 }
 

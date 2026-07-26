@@ -62,7 +62,7 @@ const CANONICAL_SKILL_DIR: &str = ".agents/skills/buzz-cli";
 const NEST_DIR_PROD: &str = ".buzz";
 
 /// Nest directory name for dev builds. Dev builds (those whose Tauri app-data
-/// directory name starts with `"xyz.block.buzz.app.dev"`) use a separate nest
+/// directory name starts with `"com.macsurfacing.workspace.dev"`) use a separate nest
 /// so that the DMG and dev-build instances don't clobber each other's
 /// `.repos-dir` dotfile and `REPOS` symlink.
 const NEST_DIR_DEV: &str = ".buzz-dev";
@@ -83,7 +83,7 @@ static NEST_DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new
 /// `OnceLock` is set exactly once.
 ///
 /// `is_dev` should be `true` when the running binary is a dev build — i.e.
-/// when the Tauri app-data directory name starts with `"xyz.block.buzz.app.dev"`.
+/// when the Tauri app-data directory name starts with `"com.macsurfacing.workspace.dev"`.
 /// Pass `false` for production (signed DMG) builds.
 pub fn init_nest_dir(is_dev: bool) {
     let suffix = if is_dev { NEST_DIR_DEV } else { NEST_DIR_PROD };
@@ -121,7 +121,7 @@ fn path_is_dev_nest(path: &std::path::Path) -> bool {
 ///
 /// This is `true` for all dev builds — `just staging` and `just dev` — because
 /// [`init_nest_dir`] is called with `is_dev = true` when the Tauri app-data
-/// directory starts with `"xyz.block.buzz.app.dev"`.
+/// directory starts with `"com.macsurfacing.workspace.dev"`.
 ///
 /// Returns `false` when:
 /// - The nest is the production nest (`~/.buzz`, signed DMG).

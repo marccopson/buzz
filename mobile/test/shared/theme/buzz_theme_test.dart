@@ -31,13 +31,19 @@ void main() {
       expect(themePairFor(buzzDarkThemeName), buzzThemeName);
     });
 
-    test('appear as a single System-mode option labelled "Buzz"', () {
+    test('appear as a single System-mode option labelled "MAC Workspace"', () {
       final paired = themeGroups().paired.map((t) => t.name);
       expect(paired, contains(buzzThemeName));
       expect(paired, isNot(contains(buzzDarkThemeName)));
-      expect(pairedThemeLabel(buzzThemeName), 'Buzz');
-      expect(themeSelectionLabel(buzzThemeName, ThemeMode.system), 'Buzz');
-      expect(themeSelectionLabel(buzzDarkThemeName, ThemeMode.system), 'Buzz');
+      expect(pairedThemeLabel(buzzThemeName), 'MAC Workspace');
+      expect(
+        themeSelectionLabel(buzzThemeName, ThemeMode.system),
+        'MAC Workspace',
+      );
+      expect(
+        themeSelectionLabel(buzzDarkThemeName, ThemeMode.system),
+        'MAC Workspace',
+      );
     });
 
     test('resolve across brightnesses like any other pair', () {

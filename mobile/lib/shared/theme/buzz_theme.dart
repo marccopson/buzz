@@ -18,10 +18,10 @@ bool isBuzzTheme(String themeName) =>
     themeName == buzzThemeName || themeName == buzzDarkThemeName;
 
 /// Gradient stops, matching desktop's `--buzz-gradient-*` custom properties.
-const _lightTop = Color(0xFFE6E6B6);
-const _lightBottom = Color(0xFFC4D0DA);
-const _darkTop = Color(0xFF4A4616);
-const _darkBottom = Color(0xFF0A1423);
+const _lightTop = Color(0xFF2E387D);
+const _lightBottom = Color(0xFF93AABB);
+const _darkTop = Color(0xFF2D3445);
+const _darkBottom = Color(0xFF2E387D);
 
 /// The Buzz gradient for the app's top section, or null when [themeName] is not
 /// a Buzz theme — in which case the section keeps its default frosted fill.

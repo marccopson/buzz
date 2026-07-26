@@ -3,10 +3,12 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
-const BUZZ_RELEASE_IDENTIFIER_PREFIX: &str = "xyz.block.buzz.app";
+const WORKSPACE_RELEASE_IDENTIFIER_PREFIX: &str = "com.macsurfacing.workspace";
+const BUZZ_RELEASE_IDENTIFIER: &str = "xyz.block.buzz.app";
 const SPROUT_RELEASE_IDENTIFIER: &str = "xyz.block.sprout.app";
-const BUZZ_DEV_IDENTIFIER_PREFIX: &str = "xyz.block.buzz.app.dev";
-const SPROUT_DEV_IDENTIFIER_PREFIX: &str = "xyz.block.sprout.app.dev";
+const WORKSPACE_DEV_IDENTIFIER_PREFIX: &str = "com.macsurfacing.workspace.dev";
+const BUZZ_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
+const SPROUT_DEV_IDENTIFIER: &str = "xyz.block.sprout.app.dev";
 
 const SPROUT_WORKSPACES_KEY: &str = "sprout-workspaces";
 const SPROUT_ACTIVE_WORKSPACE_KEY: &str = "sprout-active-workspace-id";
@@ -27,21 +29,35 @@ pub struct LegacyOnboardingCompletion {
     value: String,
 }
 
-fn legacy_identifier(current_identifier: &str) -> Option<String> {
-    if current_identifier.starts_with(BUZZ_DEV_IDENTIFIER_PREFIX) {
-        Some(current_identifier.replacen(
-            BUZZ_DEV_IDENTIFIER_PREFIX,
-            SPROUT_DEV_IDENTIFIER_PREFIX,
-            1,
-        ))
-    } else if current_identifier.starts_with(BUZZ_RELEASE_IDENTIFIER_PREFIX) {
-        Some(current_identifier.replacen(
-            BUZZ_RELEASE_IDENTIFIER_PREFIX,
-            SPROUT_RELEASE_IDENTIFIER,
-            1,
-        ))
+fn legacy_identifiers(current_identifier: &str) -> Vec<String> {
+    if current_identifier.starts_with(WORKSPACE_DEV_IDENTIFIER_PREFIX) {
+        vec![
+            current_identifier.replacen(
+                WORKSPACE_DEV_IDENTIFIER_PREFIX,
+                BUZZ_DEV_IDENTIFIER,
+                1,
+            ),
+            current_identifier.replacen(
+                WORKSPACE_DEV_IDENTIFIER_PREFIX,
+                SPROUT_DEV_IDENTIFIER,
+                1,
+            ),
+        ]
+    } else if current_identifier.starts_with(WORKSPACE_RELEASE_IDENTIFIER_PREFIX) {
+        vec![
+            current_identifier.replacen(
+                WORKSPACE_RELEASE_IDENTIFIER_PREFIX,
+                BUZZ_RELEASE_IDENTIFIER,
+                1,
+            ),
+            current_identifier.replacen(
+                WORKSPACE_RELEASE_IDENTIFIER_PREFIX,
+                SPROUT_RELEASE_IDENTIFIER,
+                1,
+            ),
+        ]
     } else {
-        None
+        Vec::new()
     }
 }
 
@@ -176,27 +192,25 @@ pub async fn get_legacy_workspace_storage(
 ) -> Result<LegacyWorkspaceStorage, String> {
     let identifier = app.config().identifier.clone();
     tokio::task::spawn_blocking(move || {
-        let Some(identifier) = legacy_identifier(&identifier) else {
-            return Ok(LegacyWorkspaceStorage::default());
-        };
-        let Some(root) = legacy_webkit_data_root(&identifier) else {
-            return Ok(LegacyWorkspaceStorage::default());
-        };
-        if !root.exists() {
-            return Ok(LegacyWorkspaceStorage::default());
-        }
-
-        let mut databases = Vec::new();
-        collect_local_storage_databases(&root, &mut databases);
-
         let mut result = LegacyWorkspaceStorage::default();
-        for database in databases {
-            match read_legacy_workspace_storage_db(&database) {
-                Ok(storage) => merge_legacy_workspace_storage(&mut result, storage),
-                Err(error) => eprintln!(
-                    "buzz-desktop: legacy-local-storage-migration: {}: {error}",
-                    database.display()
-                ),
+        for legacy_identifier in legacy_identifiers(&identifier) {
+            let Some(root) = legacy_webkit_data_root(&legacy_identifier) else {
+                continue;
+            };
+            if !root.exists() {
+                continue;
+            }
+
+            let mut databases = Vec::new();
+            collect_local_storage_databases(&root, &mut databases);
+            for database in databases {
+                match read_legacy_workspace_storage_db(&database) {
+                    Ok(storage) => merge_legacy_workspace_storage(&mut result, storage),
+                    Err(error) => eprintln!(
+                        "buzz-desktop: legacy-local-storage-migration: {}: {error}",
+                        database.display()
+                    ),
+                }
             }
         }
 
@@ -211,18 +225,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_identifier_maps_release_identifier() {
+    fn legacy_identifiers_map_release_identifiers_in_preference_order() {
         assert_eq!(
-            legacy_identifier("xyz.block.buzz.app"),
-            Some("xyz.block.sprout.app".to_string())
+            legacy_identifiers("com.macsurfacing.workspace"),
+            vec![
+                "xyz.block.buzz.app".to_string(),
+                "xyz.block.sprout.app".to_string(),
+            ]
         );
     }
 
     #[test]
-    fn legacy_identifier_maps_dev_worktree_identifier() {
+    fn legacy_identifiers_map_dev_worktree_identifiers_in_preference_order() {
         assert_eq!(
-            legacy_identifier("xyz.block.buzz.app.dev.my-branch"),
-            Some("xyz.block.sprout.app.dev.my-branch".to_string())
+            legacy_identifiers("com.macsurfacing.workspace.dev.my-branch"),
+            vec![
+                "xyz.block.buzz.app.dev.my-branch".to_string(),
+                "xyz.block.sprout.app.dev.my-branch".to_string(),
+            ]
         );
     }
 

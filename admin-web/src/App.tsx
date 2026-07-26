@@ -89,7 +89,7 @@ function Reports() {
     <Page
       eyebrow="Moderation"
       title="Open reports"
-      description="Review reports across every Buzz community."
+      description="Review reports across every MAC Workspace community."
     >
       <StateView resource={resource}>
         {(reports) =>
@@ -203,7 +203,7 @@ function FeedbackList() {
     <Page
       eyebrow="Product"
       title="Feedback"
-      description="Recent product feedback from across Buzz."
+      description="Recent product feedback from across MAC Workspace."
     >
       <StateView resource={resource}>
         {(items) => {
@@ -658,17 +658,8 @@ function date(value: string) {
     : parsed.toLocaleString();
 }
 
-function BuzzMark() {
-  return (
-    <svg viewBox="0 0 466 309" aria-hidden="true">
-      <path d="M91.7 62.8a91.7 91.7 0 0 0 0 183.4H128V62.8H91.7Zm282.6 0H338v183.4h36.3a91.7 91.7 0 1 0 0-183.4Z" />
-      <path
-        fillRule="evenodd"
-        d="M162 0h142a34 34 0 0 1 34 34v241a34 34 0 0 1-34 34H162a34 34 0 0 1-34-34V34a34 34 0 0 1 34-34Zm31.3 57.4a27 27 0 1 0 0 54 27 27 0 0 0 0-54Zm82.7 0a27 27 0 1 0 0 54 27 27 0 0 0 0-54Zm-109.7 99.8h136.9v38.3H166.3v-38.3Zm.6 77.9h136.2v37.6H166.9v-37.6Z"
-        clipRule="evenodd"
-      />
-    </svg>
-  );
+function WorkspaceMark() {
+  return <span aria-hidden="true">MW</span>;
 }
 
 function ReportIcon() {
@@ -781,10 +772,10 @@ export function App() {
       <header className="app-header">
         <Link href="/reports" className="brand">
           <span className="brand-mark">
-            <BuzzMark />
+            <WorkspaceMark />
           </span>
           <span>
-            Buzz <b>Admin</b>
+            MAC Workspace <b>Admin</b>
           </span>
         </Link>
         <nav>
