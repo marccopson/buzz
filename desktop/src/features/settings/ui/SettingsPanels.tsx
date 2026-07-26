@@ -234,6 +234,8 @@ export const settingsSections: SettingsSectionDescriptor[] = [
 ];
 
 function formatThemeLabel(name: string): string {
+  if (name === "buzz") return "MAC Workspace";
+  if (name === "buzz-dark") return "MAC Workspace Dark";
   return name
     .split("-")
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -247,6 +249,7 @@ function formatThemeLabel(name: string): string {
  * "material-theme-lighter", and "gruvbox-light-soft".
  */
 function pairedThemeLabel(lightName: string): string {
+  if (lightName === "buzz") return "MAC Workspace";
   const modeTokens = new Set([
     "light",
     "latte",
@@ -518,7 +521,7 @@ function ThemeSettingsCard() {
     >
       <SettingsSectionHeader
         title="Appearance"
-        description="Choose a theme for Buzz."
+        description="Choose a theme for MAC Workspace."
       />
 
       {/* Mode selector: System / Light / Dark */}

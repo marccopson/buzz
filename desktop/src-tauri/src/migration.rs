@@ -2,13 +2,13 @@
 //!
 //! **Worktree sync** (`sync_shared_agent_data`): Per-launch symlink creation
 //! from the current worktree data directory to the canonical dev data
-//! directory (`xyz.block.buzz.app.dev`). Only runs when
+//! directory (`com.macsurfacing.workspace.dev`). Only runs when
 //! `BUZZ_SHARE_IDENTITY=1` and `BUZZ_PRIVATE_KEY` is set. All dev
 //! instances share the same physical files — edits in any worktree are
 //! immediately visible to all others.
 //!
 //! **Command reconciliation** (`reconcile_legacy_command_names`): Per-launch
-//! fix-up of persisted built-in command names from the Sprout→Buzz rename.
+//! fix-up of persisted built-in command names inherited from Buzz.
 //!
 //! **Provider reconciliation** (`reconcile_provider_mcp_commands`): Per-launch
 //! fix-up of `mcp_command` values in `managed-agents.json` against the
@@ -21,9 +21,9 @@ use tauri::Manager;
 
 use crate::util::replace_with_symlink;
 
-const CANONICAL_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
-const LEGACY_CANONICAL_DEV_IDENTIFIER: &str = "xyz.block.sprout.app.dev";
-const LEGACY_RELEASE_IDENTIFIER: &str = "xyz.block.sprout.app";
+const CANONICAL_DEV_IDENTIFIER: &str = "com.macsurfacing.workspace.dev";
+const LEGACY_CANONICAL_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
+const LEGACY_RELEASE_IDENTIFIER: &str = "xyz.block.buzz.app";
 
 /// JSON files symlinked from worktree data directories to the canonical
 /// dev data directory. Only data files — never `agent-pids/` or `logs/`.
@@ -41,8 +41,8 @@ const SHARED_AGENT_DIRS: &[&str] = &["agents/teams"];
 
 /// Returns `true` when `name` is a dev data dir name — i.e. it is exactly the
 /// canonical dev identifier or a worktree variant separated by a `.` (e.g.
-/// `xyz.block.buzz.app.dev.my-branch`). Rejects prefix-collisions such as
-/// `xyz.block.buzz.app.developer`. This is the authoritative dev/prod
+/// `com.macsurfacing.workspace.dev.my-branch`). Rejects prefix-collisions such as
+/// `com.macsurfacing.workspace.developer`. This is the authoritative dev/prod
 /// discriminator shared by `run_boot_migrations`, `sync_shared_agent_data`,
 /// and `reconcile_target_dir`.
 pub(crate) fn is_dev_data_dir_name(name: &str) -> bool {
@@ -60,8 +60,8 @@ pub(crate) fn legacy_app_data_dir(current: &Path) -> Option<PathBuf> {
     let name = current.file_name()?.to_str()?;
     let legacy_name = if name.starts_with(CANONICAL_DEV_IDENTIFIER) {
         name.replacen(CANONICAL_DEV_IDENTIFIER, LEGACY_CANONICAL_DEV_IDENTIFIER, 1)
-    } else if name.starts_with("xyz.block.buzz.app") {
-        name.replacen("xyz.block.buzz.app", LEGACY_RELEASE_IDENTIFIER, 1)
+    } else if name.starts_with("com.macsurfacing.workspace") {
+        name.replacen("com.macsurfacing.workspace", LEGACY_RELEASE_IDENTIFIER, 1)
     } else {
         return None;
     };

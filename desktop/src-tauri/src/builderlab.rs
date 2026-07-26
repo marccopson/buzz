@@ -25,7 +25,7 @@ const AUTH_COMPLETE_HTML: &str = r#"<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Buzz authentication complete</title>
+  <title>MAC Workspace authentication complete</title>
   <style>
     :root {
       color-scheme: light;
@@ -647,7 +647,7 @@ mod tests {
     #[test]
     fn auth_complete_page_uses_buzz_brand() {
         for expected in [
-            "<title>Buzz authentication complete</title>",
+            "<title>MAC Workspace authentication complete</title>",
             "#d7d72e",
             "#231e1e",
             "#d7e7f6",

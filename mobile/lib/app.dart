@@ -78,7 +78,7 @@ class App extends HookConsumerWidget {
     });
 
     return MaterialApp(
-      title: 'Buzz',
+      title: 'MAC Workspace',
       theme: AppTheme.light(
         colorScheme: lightScheme,
         topSectionGradient: buzzLightGradient,

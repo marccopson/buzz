@@ -138,11 +138,10 @@ export function MachineOnboardingFlow({
               effect="mask-reveal-up"
               transitionKey="machine-identity"
             >
-              <img
-                alt="Buzz"
-                className="w-full max-w-[600px]"
-                src="/landing/buzz-wordmark.png"
-              />
+              <div className="font-semibold text-[clamp(3rem,8vw,6rem)] leading-none tracking-[-0.07em] text-primary">
+                MAC{" "}
+                <span className="font-normal text-foreground">Workspace</span>
+              </div>
               <p className="mt-2 max-w-[560px] text-center text-2xl font-normal leading-none text-foreground">
                 Your people, your agents, your projects —<br />
                 all in one place.
@@ -187,7 +186,7 @@ export function MachineOnboardingFlow({
                 <p className="mt-5 max-w-[440px] text-sm leading-6 text-foreground/80">
                   {identityLost
                     ? "Your identity is no longer in the system keyring. Re-import your nsec to restore it."
-                    : "If you already have a Buzz account, enter your private key below to get started."}
+                    : "If you already have a MAC Workspace identity, enter your private key below to get started."}
                 </p>
               </div>
               <div className="buzz-onboarding-key-import-position w-full">

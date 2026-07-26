@@ -42,7 +42,7 @@ if (externalReleaseSigning && uploadSigningValues.values.any { !it.isNullOrBlank
 }
 
 android {
-    namespace = "xyz.block.buzz.mobile"
+    namespace = "com.macsurfacing.workspace"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -56,7 +56,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "xyz.block.buzz.mobile"
+        applicationId = "com.macsurfacing.workspace"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -78,6 +78,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".dev"
+        }
         release {
             if (hasUploadSigning) {
                 signingConfig = signingConfigs.getByName("upload")

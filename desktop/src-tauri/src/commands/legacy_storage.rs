@@ -3,10 +3,10 @@ use std::path::{Path, PathBuf};
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
 
-const BUZZ_RELEASE_IDENTIFIER_PREFIX: &str = "xyz.block.buzz.app";
-const SPROUT_RELEASE_IDENTIFIER: &str = "xyz.block.sprout.app";
-const BUZZ_DEV_IDENTIFIER_PREFIX: &str = "xyz.block.buzz.app.dev";
-const SPROUT_DEV_IDENTIFIER_PREFIX: &str = "xyz.block.sprout.app.dev";
+const WORKSPACE_RELEASE_IDENTIFIER_PREFIX: &str = "com.macsurfacing.workspace";
+const BUZZ_RELEASE_IDENTIFIER: &str = "xyz.block.buzz.app";
+const WORKSPACE_DEV_IDENTIFIER_PREFIX: &str = "com.macsurfacing.workspace.dev";
+const BUZZ_DEV_IDENTIFIER: &str = "xyz.block.buzz.app.dev";
 
 const SPROUT_WORKSPACES_KEY: &str = "sprout-workspaces";
 const SPROUT_ACTIVE_WORKSPACE_KEY: &str = "sprout-active-workspace-id";
@@ -28,16 +28,12 @@ pub struct LegacyOnboardingCompletion {
 }
 
 fn legacy_identifier(current_identifier: &str) -> Option<String> {
-    if current_identifier.starts_with(BUZZ_DEV_IDENTIFIER_PREFIX) {
+    if current_identifier.starts_with(WORKSPACE_DEV_IDENTIFIER_PREFIX) {
+        Some(current_identifier.replacen(WORKSPACE_DEV_IDENTIFIER_PREFIX, BUZZ_DEV_IDENTIFIER, 1))
+    } else if current_identifier.starts_with(WORKSPACE_RELEASE_IDENTIFIER_PREFIX) {
         Some(current_identifier.replacen(
-            BUZZ_DEV_IDENTIFIER_PREFIX,
-            SPROUT_DEV_IDENTIFIER_PREFIX,
-            1,
-        ))
-    } else if current_identifier.starts_with(BUZZ_RELEASE_IDENTIFIER_PREFIX) {
-        Some(current_identifier.replacen(
-            BUZZ_RELEASE_IDENTIFIER_PREFIX,
-            SPROUT_RELEASE_IDENTIFIER,
+            WORKSPACE_RELEASE_IDENTIFIER_PREFIX,
+            BUZZ_RELEASE_IDENTIFIER,
             1,
         ))
     } else {
@@ -213,16 +209,16 @@ mod tests {
     #[test]
     fn legacy_identifier_maps_release_identifier() {
         assert_eq!(
-            legacy_identifier("xyz.block.buzz.app"),
-            Some("xyz.block.sprout.app".to_string())
+            legacy_identifier("com.macsurfacing.workspace"),
+            Some("xyz.block.buzz.app".to_string())
         );
     }
 
     #[test]
     fn legacy_identifier_maps_dev_worktree_identifier() {
         assert_eq!(
-            legacy_identifier("xyz.block.buzz.app.dev.my-branch"),
-            Some("xyz.block.sprout.app.dev.my-branch".to_string())
+            legacy_identifier("com.macsurfacing.workspace.dev.my-branch"),
+            Some("xyz.block.buzz.app.dev.my-branch".to_string())
         );
     }
 
