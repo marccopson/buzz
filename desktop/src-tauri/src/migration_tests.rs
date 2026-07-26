@@ -20,24 +20,34 @@ fn canonical_dev_data_dir_returns_none_for_root() {
 }
 
 #[test]
-fn legacy_app_data_dir_maps_release_identifier() {
+fn legacy_app_data_dirs_map_release_identifiers_in_preference_order() {
     let current = PathBuf::from("/Users/me/Library/Application Support/com.macsurfacing.workspace");
-    let legacy = legacy_app_data_dir(&current).unwrap();
+    let legacy = legacy_app_data_dirs(&current);
     assert_eq!(
         legacy,
-        PathBuf::from("/Users/me/Library/Application Support/xyz.block.buzz.app")
+        vec![
+            PathBuf::from("/Users/me/Library/Application Support/xyz.block.buzz.app"),
+            PathBuf::from("/Users/me/Library/Application Support/xyz.block.sprout.app"),
+        ]
     );
 }
 
 #[test]
-fn legacy_app_data_dir_maps_dev_worktree_identifier() {
+fn legacy_app_data_dirs_map_dev_worktree_identifiers_in_preference_order() {
     let current = PathBuf::from(
         "/Users/me/Library/Application Support/com.macsurfacing.workspace.dev.my-branch",
     );
-    let legacy = legacy_app_data_dir(&current).unwrap();
+    let legacy = legacy_app_data_dirs(&current);
     assert_eq!(
         legacy,
-        PathBuf::from("/Users/me/Library/Application Support/xyz.block.buzz.app.dev.my-branch",)
+        vec![
+            PathBuf::from(
+                "/Users/me/Library/Application Support/xyz.block.buzz.app.dev.my-branch",
+            ),
+            PathBuf::from(
+                "/Users/me/Library/Application Support/xyz.block.sprout.app.dev.my-branch",
+            ),
+        ]
     );
 }
 
