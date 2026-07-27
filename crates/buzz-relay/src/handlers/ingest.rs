@@ -14,7 +14,8 @@ use buzz_core::kind::{
     event_kind_u32, is_identity_archive_request_kind, is_parameterized_replaceable,
     is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC,
     KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET,
-    KIND_CANVAS, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN,
+    KIND_CANVAS, KIND_CONTACT_LIST, KIND_COS_FOLLOW_UP_COMMAND, KIND_COS_FOLLOW_UP_ITEM,
+    KIND_COS_FOLLOW_UP_RECEIPT, KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN,
     KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT,
     KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH,
     KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST, KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE,
@@ -242,6 +243,9 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         | KIND_EMOJI_LIST
         | KIND_AGENT_PROFILE => Ok(Scope::UsersWrite),
         KIND_DELETION
+        | KIND_COS_FOLLOW_UP_ITEM
+        | KIND_COS_FOLLOW_UP_COMMAND
+        | KIND_COS_FOLLOW_UP_RECEIPT
         | KIND_REACTION
         | KIND_GIFT_WRAP
         | KIND_STREAM_MESSAGE
@@ -493,6 +497,9 @@ pub(crate) fn requires_h_channel_scope(kind: u32) -> bool {
             | KIND_HUDDLE_PARTICIPANT_LEFT
             | KIND_HUDDLE_ENDED
             | KIND_HUDDLE_GUIDELINES
+            | KIND_COS_FOLLOW_UP_ITEM
+            | KIND_COS_FOLLOW_UP_COMMAND
+            | KIND_COS_FOLLOW_UP_RECEIPT
     )
 }
 
@@ -1568,6 +1575,24 @@ async fn ingest_event_inner(
         )));
     }
 
+    let is_cos_follow_up_removal = kind_u32 == KIND_DELETION
+        && event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.first().is_some_and(|name| name == "item")
+        });
+    let cos_follow_up = if matches!(
+        kind_u32,
+        KIND_COS_FOLLOW_UP_ITEM | KIND_COS_FOLLOW_UP_COMMAND | KIND_COS_FOLLOW_UP_RECEIPT
+    ) || is_cos_follow_up_removal
+    {
+        Some(
+            buzz_core::cos_follow_up::parse_event(&event)
+                .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?,
+        )
+    } else {
+        None
+    };
+
     // Command kinds are routed AFTER signature verification, timestamp check,
     // pubkey/auth match, and scope validation — never before.
     if buzz_core::kind::is_command_kind(kind_u32) {
@@ -1781,6 +1806,15 @@ async fn ingest_event_inner(
         Some(ch_id) => state.db.get_channel(tenant.community(), ch_id).await.ok(),
         None => None,
     };
+    if cos_follow_up.is_some()
+        && channel_row
+            .as_ref()
+            .is_none_or(|channel| channel.visibility != "private")
+    {
+        return Err(IngestError::Rejected(
+            "restricted: COS follow-up events require a private per-identity channel".into(),
+        ));
+    }
     // E1 phase-2 (§4.8 phase-2 addendum): resolve the fan-out visibility once,
     // here, through the same `channel_visibility_cached` gate fan-out uses
     // (fence 2: cached `private` wins over the prefetched row; a `private`
@@ -1843,6 +1877,49 @@ async fn ingest_event_inner(
                 state_for_request(tenant, auth.pubkey()),
             );
             auth_result.map_err(IngestError::Rejected)?;
+        }
+
+        if let Some(follow_up) = &cos_follow_up {
+            use buzz_core::cos_follow_up::FollowUpEvent;
+
+            if matches!(
+                follow_up,
+                FollowUpEvent::Item(_) | FollowUpEvent::Receipt(_) | FollowUpEvent::Remove(_)
+            ) {
+                let role = state
+                    .db
+                    .get_member_role(tenant.community(), ch_id, &pubkey_bytes)
+                    .await
+                    .map_err(|error| {
+                        IngestError::Internal(format!(
+                            "error: checking COS follow-up bridge role: {error}"
+                        ))
+                    })?;
+                if role.as_deref() != Some("owner") {
+                    return Err(IngestError::AuthFailed(
+                        "restricted: COS follow-up items and receipts must be bridge-owner signed"
+                            .into(),
+                    ));
+                }
+            }
+
+            if let FollowUpEvent::Item(item) = follow_up {
+                let assignee = item.assignee.to_bytes();
+                let assignee_is_member = state
+                    .is_member_cached(tenant.community(), ch_id, &assignee)
+                    .await
+                    .map_err(|error| {
+                        IngestError::Internal(format!(
+                            "error: checking COS follow-up assignee membership: {error}"
+                        ))
+                    })?;
+                if !assignee_is_member {
+                    return Err(IngestError::Rejected(
+                        "restricted: COS follow-up assignee must be a member of the private channel"
+                            .into(),
+                    ));
+                }
+            }
         }
     }
 
@@ -2692,6 +2769,26 @@ mod tests {
                 requires_h_channel_scope(kind),
                 "kind {kind} should require h"
             );
+        }
+    }
+
+    #[test]
+    fn cos_follow_up_kinds_are_channel_scoped_message_writes() {
+        let dummy = make_dummy_event();
+        for kind in [
+            KIND_COS_FOLLOW_UP_ITEM,
+            KIND_COS_FOLLOW_UP_COMMAND,
+            KIND_COS_FOLLOW_UP_RECEIPT,
+        ] {
+            assert!(
+                requires_h_channel_scope(kind),
+                "kind {kind} should require h"
+            );
+            assert_eq!(
+                required_scope_for_kind(kind, &dummy).unwrap(),
+                Scope::MessagesWrite
+            );
+            assert!(!is_global_only_kind(kind));
         }
     }
 

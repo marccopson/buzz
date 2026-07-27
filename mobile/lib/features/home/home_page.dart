@@ -11,6 +11,7 @@ import '../../shared/theme/theme.dart';
 import '../activity/activity_page.dart';
 import '../channels/channels_page.dart';
 import '../cos_running_order/cos_running_order_page.dart';
+import '../cos_follow_up/cos_follow_up_page.dart';
 import '../search/search_page.dart';
 
 class HomePage extends HookConsumerWidget {
@@ -51,6 +52,11 @@ class HomePage extends HookConsumerWidget {
       selectedIcon: LucideIcons.listChecks500,
       label: 'COS',
     ),
+    _HomeDestination(
+      icon: LucideIcons.listTodo300,
+      selectedIcon: LucideIcons.listTodo500,
+      label: 'My Actions',
+    ),
   ];
 
   @override
@@ -67,6 +73,7 @@ class HomePage extends HookConsumerWidget {
       const ActivityPage(),
       const SearchPage(),
       const CosRunningOrderPage(),
+      const CosFollowUpPage(),
     ];
 
     return Scaffold(

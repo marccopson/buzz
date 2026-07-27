@@ -1,5 +1,11 @@
 package com.macsurfacing.workspace
 
+import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -78,6 +84,7 @@ internal object AndroidImageProcessor {
 
 class MainActivity : FlutterActivity() {
     private var mediaUploadChannel: MethodChannel? = null
+    private var followUpNotificationChannel: MethodChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -101,6 +108,67 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+
+        ensureFollowUpNotificationChannel()
+        followUpNotificationChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            FOLLOW_UP_NOTIFICATION_CHANNEL,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method != "show") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val payload = call.arguments as? Map<*, *>
+                val id = payload?.get("id") as? String
+                val title = payload?.get("title") as? String
+                val body = payload?.get("body") as? String
+                if (id == null || title == null || body == null) {
+                    invalidArguments(result, "Expected notification id, title, and body.")
+                    return@setMethodCallHandler
+                }
+                showFollowUpNotification(id, title, body)
+                result.success(null)
+            }
+        }
+    }
+
+    private fun ensureFollowUpNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(
+            NotificationChannel(
+                FOLLOW_UP_ANDROID_CHANNEL_ID,
+                "My Actions",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Questions and checks that need your attention"
+            },
+        )
+    }
+
+    private fun showFollowUpNotification(id: String, title: String, body: String) {
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 47010)
+            return
+        }
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, FOLLOW_UP_ANDROID_CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        val notification = builder
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setAutoCancel(true)
+            .build()
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(id.hashCode(), notification)
     }
 
     private fun handleSanitizeImageForUpload(
@@ -284,5 +352,7 @@ class MainActivity : FlutterActivity() {
         private const val SANITIZE_IMAGE_FOR_UPLOAD_METHOD = "sanitizeImageForUpload"
         private const val TRANSCODE_IMAGE_TO_JPEG_METHOD = "transcodeImageToJpeg"
         private const val TRANSCODE_VIDEO_TO_MP4_METHOD = "transcodeVideoToMp4"
+        private const val FOLLOW_UP_NOTIFICATION_CHANNEL = "buzz/cos_follow_up_notifications"
+        private const val FOLLOW_UP_ANDROID_CHANNEL_ID = "cos-follow-up-actions"
     }
 }

@@ -29,6 +29,7 @@ import { useUnreadChannels } from "@/features/channels/useUnreadChannels";
 import { msgContextKey } from "@/features/channels/readState/readStateFormat";
 import { useMembershipNotifications } from "@/features/channels/useMembershipNotifications";
 import { useFeedItemState } from "@/features/home/useFeedItemState";
+import { useCosFollowUpSync as useCosSync } from "@/features/cos-follow-up/hooks";
 import { useThreadFollows } from "@/features/messages/lib/useThreadFollows";
 import {
   useHomeFeedNotifications,
@@ -126,6 +127,7 @@ export function AppShell() {
     goAgents,
     goChannel,
     goHome,
+    goMyActions,
     goNewMessage,
     goProjects,
     goPulse,
@@ -160,8 +162,8 @@ export function AppShell() {
     ? locationSearchSection
     : DEFAULT_SETTINGS_SECTION;
   const startupReady = useDeferredStartup();
-
   const identityQuery = useIdentityQuery();
+  useCosSync(identityQuery.data?.pubkey, communitiesHook.activeCommunity?.id);
   const { mutedChannelIds, muteChannel, unmuteChannel } = useChannelMutes(
     identityQuery.data?.pubkey,
   );
@@ -880,6 +882,7 @@ export function AppShell() {
                           searchChannels={channels}
                           searchFocusRequest={searchFocusRequest}
                           onSelectHome={() => void goHome()}
+                          onSelectMyActions={() => void goMyActions()}
                           onSelectProjects={() => void goProjects()}
                           onSelectPulse={() => void goPulse()}
                           onSelectRunningOrder={() => void goRunningOrder()}

@@ -1033,6 +1033,7 @@ declare global {
       kind: number;
       tags: string[][];
     }>;
+    __BUZZ_E2E_LAST_COS_COMMAND__?: RelayEvent;
     /** Project event kinds rejected once, in order, to exercise retry flows. */
     __BUZZ_E2E_REJECT_PROJECT_EVENT_KINDS__?: number[];
     /** Structured merge error returned by the mock native merge command. */
@@ -3828,7 +3829,14 @@ function emitMockLiveEvent(channelId: string, event: RelayEvent) {
       if (
         (subscription.channelId === channelId ||
           subscription.channelId === GLOBAL_MOCK_SUBSCRIPTION) &&
-        (!subscription.kinds || subscription.kinds.includes(event.kind))
+        (!subscription.kinds || subscription.kinds.includes(event.kind)) &&
+        (subscription.ownerPubkeys.length === 0 ||
+          event.tags.some(
+            (tag) =>
+              tag[0] === "p" &&
+              tag[1] &&
+              subscription.ownerPubkeys.includes(tag[1]),
+          ))
       ) {
         sendWsText(socket.handler, ["EVENT", subId, event]);
       }
@@ -3889,6 +3897,31 @@ function hasMockOwnerKindSubscription(ownerPubkey: string, kind: number) {
 
 function recordMockMessage(channelId: string, event: RelayEvent) {
   const history = getMockMessageStore(channelId);
+  if (event.kind === 37010) {
+    const dTag = event.tags.find((tag) => tag[0] === "d")?.[1];
+    if (dTag) {
+      const existingIndex = history.findIndex(
+        (candidate) =>
+          candidate.kind === event.kind &&
+          candidate.pubkey === event.pubkey &&
+          candidate.tags.some((tag) => tag[0] === "d" && tag[1] === dTag),
+      );
+      if (existingIndex >= 0) history.splice(existingIndex, 1);
+    }
+  }
+  if (event.kind === KIND_DELETION) {
+    const itemId = event.tags.find((tag) => tag[0] === "item")?.[1];
+    const targetId = event.tags.find((tag) => tag[0] === "e")?.[1];
+    if (itemId && targetId) {
+      const targetIndex = history.findIndex(
+        (candidate) =>
+          candidate.kind === 37010 &&
+          candidate.id === targetId &&
+          candidate.tags.some((tag) => tag[0] === "d" && tag[1] === itemId),
+      );
+      if (targetIndex >= 0) history.splice(targetIndex, 1);
+    }
+  }
   history.push(event);
 
   const channel = mockChannels.find((candidate) => candidate.id === channelId);
@@ -8845,6 +8878,30 @@ function sendToMockSocket(args: {
       return;
     }
 
+    if (filter.kinds?.includes(37010) && (filter["#p"]?.length ?? 0) > 0) {
+      const assignees = new Set(filter["#p"]);
+      const events = [...mockMessages.values()]
+        .flat()
+        .filter(
+          (event) =>
+            event.kind === 37010 &&
+            event.tags.some(
+              (tag) => tag[0] === "p" && tag[1] && assignees.has(tag[1]),
+            ),
+        )
+        .sort(
+          (left, right) =>
+            right.created_at - left.created_at ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, filter.limit ?? 500);
+      for (const event of events) {
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
     // Project queries: NIP-34 kinds, or kind:1 comments scoped by repo `a`
     // tag (PR/issue discussions, approvals, review requests).
     if (
@@ -10821,25 +10878,31 @@ export function maybeInstallE2eTauriMocks() {
           tags: (payload as { tags: string[][] }).tags,
         });
         if (identity) {
-          return JSON.stringify(
-            await signWithIdentity(identity, {
-              kind: (payload as { kind: number }).kind,
-              content: (payload as { content: string }).content,
-              createdAt: (payload as { createdAt?: number }).createdAt,
-              tags: (payload as { tags: string[][] }).tags,
-            }),
-          );
+          const signed = await signWithIdentity(identity, {
+            kind: (payload as { kind: number }).kind,
+            content: (payload as { content: string }).content,
+            createdAt: (payload as { createdAt?: number }).createdAt,
+            tags: (payload as { tags: string[][] }).tags,
+          });
+          if (signed.kind === 47010) {
+            window.__BUZZ_E2E_LAST_COS_COMMAND__ = signed;
+          }
+          return JSON.stringify(signed);
         }
 
-        return JSON.stringify(
-          createMockEvent(
+        {
+          const signed = createMockEvent(
             (payload as { kind: number }).kind,
             (payload as { content: string }).content,
             (payload as { tags: string[][] }).tags,
             DEFAULT_MOCK_IDENTITY.pubkey,
             (payload as { createdAt?: number }).createdAt,
-          ),
-        );
+          );
+          if (signed.kind === 47010) {
+            window.__BUZZ_E2E_LAST_COS_COMMAND__ = signed;
+          }
+          return JSON.stringify(signed);
+        }
       case "nip44_encrypt_to_self":
         return (payload as { plaintext: string }).plaintext;
       case "nip44_decrypt_from_self":

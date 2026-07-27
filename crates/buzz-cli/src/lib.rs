@@ -236,6 +236,9 @@ enum Cmd {
     /// Community moderation — reports queue, bans, timeouts, audit trail
     #[command(subcommand)]
     Moderation(ModerationCmd),
+    /// COS meeting follow-up bridge and user actions
+    #[command(subcommand)]
+    FollowUps(FollowUpsCmd),
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -920,6 +923,159 @@ pub enum WorkflowsCmd {
         #[arg(long)]
         note: Option<String>,
     },
+}
+
+/// COS meeting follow-up operations.
+#[derive(Subcommand)]
+pub enum FollowUpsCmd {
+    /// Idempotently ensure one private NIP-29 channel for one Workspace identity
+    #[command(name = "channel-ensure")]
+    ChannelEnsure {
+        /// COS-provided deterministic private channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Workspace identity pubkey assigned to this private channel
+        #[arg(long)]
+        assignee: String,
+    },
+    /// Verify bridge ownership and assignee membership without changing the channel
+    #[command(name = "channel-verify")]
+    ChannelVerify {
+        /// Private per-identity channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Workspace identity pubkey assigned to this private channel
+        #[arg(long)]
+        assignee: String,
+    },
+    /// Query user-authored action commands in one private identity channel
+    Commands {
+        /// Private per-identity channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Inclusive lower bound, unix seconds
+        #[arg(long)]
+        since: Option<u64>,
+        /// Composite older-page cursor: `<created_at>:<64hex-event-id>`
+        #[arg(long)]
+        cursor: Option<String>,
+        /// Maximum commands to return
+        #[arg(long, default_value_t = 100)]
+        limit: u32,
+    },
+    /// Publish or replace an authoritative item snapshot
+    #[command(name = "item-upsert")]
+    ItemUpsert {
+        /// Private per-identity channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Assigned Workspace identity pubkey
+        #[arg(long)]
+        assignee: String,
+        /// Complete v1 item JSON; use `-` to read stdin
+        #[arg(long)]
+        content: String,
+    },
+    /// Tombstone an item that has left the authoritative COS projection
+    #[command(name = "item-remove")]
+    ItemRemove {
+        /// Private per-identity channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Stable COS follow-up item id
+        #[arg(long)]
+        item: String,
+        /// Exact current kind-37010 item event id
+        #[arg(long)]
+        event: String,
+    },
+    /// Publish a bridge-authored command receipt
+    Receipt {
+        /// Private per-identity channel UUID
+        #[arg(long)]
+        channel: String,
+        /// User command event id
+        #[arg(long)]
+        command: String,
+        /// Stable COS follow-up item id
+        #[arg(long)]
+        item: String,
+        /// Authoritative outcome
+        #[arg(long, value_enum)]
+        outcome: FollowUpOutcomeArg,
+        /// Authoritative item version after processing
+        #[arg(long)]
+        version: u64,
+        /// Optional human-readable detail
+        #[arg(long)]
+        message: Option<String>,
+        /// Optional stable machine code
+        #[arg(long)]
+        code: Option<String>,
+        /// Mark a failed outcome as safely retryable
+        #[arg(long, default_value_t = false)]
+        retryable: bool,
+    },
+    /// Publish a signed action command (desktop/mobile use the same contract)
+    Command {
+        /// Private per-identity channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Stable COS follow-up item id
+        #[arg(long)]
+        item: String,
+        /// Requested action
+        #[arg(long, value_enum)]
+        action: FollowUpActionArg,
+        /// Item version the actor saw
+        #[arg(long)]
+        expected_version: u64,
+        /// Exact current item event id
+        #[arg(long)]
+        current_item_event: String,
+        /// Answer text for `answer`
+        #[arg(long)]
+        answer: Option<String>,
+        /// Optional human comment
+        #[arg(long)]
+        comment: Option<String>,
+        /// Optional reason, chiefly for rejection
+        #[arg(long)]
+        reason: Option<String>,
+        /// Replacement confirmer id (JSON scalar) for `reassign_confirmer`
+        #[arg(long)]
+        new_confirmer_id: Option<String>,
+    },
+}
+
+/// Follow-up action argument values.
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum FollowUpActionArg {
+    /// Answer.
+    Answer,
+    /// Confirm.
+    Confirm,
+    /// Reject.
+    Reject,
+    /// Offer for named confirmation.
+    #[value(name = "ready_to_check")]
+    ReadyToCheck,
+    /// Change the named confirmer.
+    #[value(name = "reassign_confirmer")]
+    ReassignConfirmer,
+}
+
+/// Follow-up receipt outcome values.
+#[derive(Clone, Copy, clap::ValueEnum)]
+pub enum FollowUpOutcomeArg {
+    /// Applied.
+    Accepted,
+    /// Refused.
+    Rejected,
+    /// Optimistic concurrency conflict.
+    Conflict,
+    /// Bridge processing failure.
+    Failed,
 }
 
 #[derive(Subcommand)]
@@ -1791,6 +1947,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Upload(sub) => commands::upload::dispatch(sub, &client).await,
         Cmd::Mem(sub) => commands::mem::dispatch(sub, &client).await,
         Cmd::Moderation(sub) => commands::moderation::dispatch(sub, &client, &cli.format).await,
+        Cmd::FollowUps(sub) => commands::follow_ups::dispatch(sub, &client, &cli.format).await,
         Cmd::Pack(_) => unreachable!("handled above"),
     }
 }
@@ -1815,6 +1972,7 @@ mod tests {
             "dms",
             "emoji",
             "feed",
+            "follow-ups",
             "issues",
             "media",
             "mem",
@@ -1935,6 +2093,18 @@ mod tests {
         );
         assert_eq!(names(&cmd, "feed"), vec!["get"]);
         assert_eq!(
+            names(&cmd, "follow-ups"),
+            vec![
+                "channel-ensure",
+                "channel-verify",
+                "command",
+                "commands",
+                "item-remove",
+                "item-upsert",
+                "receipt"
+            ]
+        );
+        assert_eq!(
             names(&cmd, "social"),
             vec![
                 "contacts",
@@ -2004,6 +2174,7 @@ mod tests {
             ("dms", 4),
             ("emoji", 5),
             ("feed", 1),
+            ("follow-ups", 7),
             ("issues", 4),
             ("media", 1),
             ("messages", 8),

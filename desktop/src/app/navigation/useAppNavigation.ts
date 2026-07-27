@@ -101,6 +101,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goMyActions = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/my-actions",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goProject = React.useCallback(
     (
       projectId: string,
@@ -310,6 +321,7 @@ export function useAppNavigation() {
     goChannel,
     goForumPost,
     goHome,
+    goMyActions,
     goNewMessage,
     goProject,
     goProjects,

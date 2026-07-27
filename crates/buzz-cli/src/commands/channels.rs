@@ -997,8 +997,46 @@ pub async fn cmd_remove_channel_member(
 
     let event = client.sign_event(builder)?;
     let resp = client.submit_event(event).await?;
-    println!("{}", normalize_write_response(&resp));
+    println!(
+        "{}",
+        build_channel_member_removal_report(&resp, channel_id, pubkey)
+    );
     Ok(())
+}
+
+fn build_channel_member_removal_report(
+    raw_response: &str,
+    channel_id: &str,
+    member_pubkey: &str,
+) -> serde_json::Value {
+    let normalized =
+        serde_json::from_str::<serde_json::Value>(&normalize_write_response(raw_response))
+            .unwrap_or_else(|_| {
+                serde_json::json!({
+                    "event_id": "",
+                    "accepted": false,
+                    "message": raw_response,
+                })
+            });
+    let accepted = normalized
+        .get("accepted")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    serde_json::json!({
+        "schema": "mac-workspace/channel-member-cli/v1",
+        "accepted": accepted,
+        "event_id": normalized
+            .get("event_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+        "channel_id": channel_id,
+        "member_pubkey": member_pubkey.to_ascii_lowercase(),
+        "status": if accepted { "removed" } else { "rejected" },
+        "message": normalized
+            .get("message")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(""),
+    })
 }
 
 /// Set the channel addition policy — sign and submit a kind:10100 (agent profile) event.
@@ -1176,10 +1214,10 @@ pub async fn dispatch_canvas(cmd: crate::CanvasCmd, client: &BuzzClient) -> Resu
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_cardinality_rule, build_template_report, cmd_set_add_policy,
-        finalize_roster_resolution, name_matches, resolve_roster_with_archive_filter,
-        validate_ttl_seconds, ArchivedExclusion, ChannelSummary, ResolvedAgent, RosterResolution,
-        SkippedSlug,
+        apply_cardinality_rule, build_channel_member_removal_report, build_template_report,
+        cmd_set_add_policy, finalize_roster_resolution, name_matches,
+        resolve_roster_with_archive_filter, validate_ttl_seconds, ArchivedExclusion,
+        ChannelSummary, ResolvedAgent, RosterResolution, SkippedSlug,
     };
     use crate::client::BuzzClient;
     use crate::CliError;
@@ -1209,6 +1247,28 @@ mod tests {
         assert_eq!(s.about.as_deref(), Some("About text"));
         assert_eq!(s.topic.as_deref(), Some("Composer work"));
         assert_eq!(s.purpose.as_deref(), Some("Track UI for the composer"));
+    }
+
+    #[test]
+    fn remove_member_report_is_stable_and_machine_verifiable() {
+        let pubkey = "AA".repeat(32);
+        let report = build_channel_member_removal_report(
+            r#"{"event_id":"event-1","accepted":true,"message":""}"#,
+            "550e8400-e29b-41d4-a716-446655440000",
+            &pubkey,
+        );
+        assert_eq!(
+            report,
+            serde_json::json!({
+                "schema": "mac-workspace/channel-member-cli/v1",
+                "accepted": true,
+                "event_id": "event-1",
+                "channel_id": "550e8400-e29b-41d4-a716-446655440000",
+                "member_pubkey": "aa".repeat(32),
+                "status": "removed",
+                "message": "",
+            })
+        );
     }
 
     #[test]
