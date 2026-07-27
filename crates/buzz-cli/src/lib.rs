@@ -928,6 +928,9 @@ pub enum WorkflowsCmd {
 /// COS meeting follow-up operations.
 #[derive(Subcommand)]
 pub enum FollowUpsCmd {
+    /// Print the embedded follow-up contract descriptor without relay access
+    #[command(name = "contract-info")]
+    ContractInfo,
     /// Idempotently ensure one private NIP-29 channel for one Workspace identity
     #[command(name = "channel-ensure")]
     ChannelEnsure {
@@ -1892,6 +1895,12 @@ pub enum ModerationCmd {
 async fn run(cli: Cli) -> Result<(), CliError> {
     let relay_url = client::normalize_relay_url(&cli.relay);
 
+    // Contract introspection is local-only and must not require relay credentials.
+    if matches!(&cli.command, Cmd::FollowUps(FollowUpsCmd::ContractInfo)) {
+        commands::follow_ups::print_contract_info();
+        return Ok(());
+    }
+
     // Pack commands are local-only — no relay connection needed.
     if let Cmd::Pack(ref sub) = cli.command {
         return match sub {
@@ -1961,6 +1970,14 @@ mod tests {
     #[test]
     fn cli_definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[tokio::test]
+    async fn follow_up_contract_info_runs_without_relay_credentials() {
+        assert_eq!(
+            run_from_args(["buzz", "follow-ups", "contract-info"]).await,
+            0
+        );
     }
 
     #[test]
@@ -2099,6 +2116,7 @@ mod tests {
                 "channel-verify",
                 "command",
                 "commands",
+                "contract-info",
                 "item-remove",
                 "item-upsert",
                 "receipt"
@@ -2174,7 +2192,7 @@ mod tests {
             ("dms", 4),
             ("emoji", 5),
             ("feed", 1),
-            ("follow-ups", 7),
+            ("follow-ups", 8),
             ("issues", 4),
             ("media", 1),
             ("messages", 8),

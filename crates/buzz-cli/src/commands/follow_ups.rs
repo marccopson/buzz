@@ -24,6 +24,7 @@ use crate::{FollowUpActionArg, FollowUpOutcomeArg, FollowUpsCmd, OutputFormat};
 
 const CLI_SCHEMA: &str = "mac-workspace/cos-follow-up-cli/v1";
 const COMMAND_QUERY_LIMIT: usize = 500;
+const REPLAY_QUERY_LIMIT: usize = 500;
 
 fn contract_error(error: impl std::fmt::Display) -> CliError {
     CliError::Usage(error.to_string())
@@ -364,9 +365,64 @@ fn replayable_item_removal(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
+fn replayable_receipt(
+    events: Vec<Event>,
+    owner: PublicKey,
+    channel_id: uuid::Uuid,
+    command_event_id: &str,
+    item_id: &str,
+    outcome: Outcome,
+    version: u64,
+    content: &ReceiptContent,
+) -> Option<Event> {
+    events.into_iter().find(|event| {
+        if event.pubkey != owner {
+            return false;
+        }
+        matches!(
+            parse_event(event),
+            Ok(FollowUpEvent::Receipt(receipt))
+                if receipt.channel_id == channel_id
+                    && receipt.command_event_id == command_event_id
+                    && receipt.item_id == item_id
+                    && receipt.outcome == outcome
+                    && receipt.authoritative_version == version
+                    && receipt.content == *content
+        )
+    })
+}
+
+fn receipt_replay_filter(
+    owner: PublicKey,
+    channel_id: uuid::Uuid,
+    command_event_id: &str,
+) -> Value {
+    // NIP-01 relay filters can only address single-letter tags. Match the
+    // standard h/e tags here and validate every custom tag plus content
+    // locally in replayable_receipt.
+    json!({
+        "kinds": [KIND_COS_FOLLOW_UP_RECEIPT],
+        "authors": [owner.to_hex()],
+        "#h": [channel_id.to_string()],
+        "#e": [command_event_id],
+        "limit": REPLAY_QUERY_LIMIT,
+    })
+}
+
 fn decode_replay_candidates(raw: &str, label: &str) -> Result<Vec<Event>, CliError> {
     serde_json::from_str(raw)
         .map_err(|error| CliError::Other(format!("invalid {label} query response: {error}")))
+}
+
+fn decode_bounded_replay_candidates(raw: &str, label: &str) -> Result<Vec<Event>, CliError> {
+    let events = decode_replay_candidates(raw, label)?;
+    if events.len() >= REPLAY_QUERY_LIMIT {
+        return Err(CliError::Other(format!(
+            "{label} query reached the {REPLAY_QUERY_LIMIT}-event safety limit; refusing to publish a potentially duplicate event"
+        )));
+    }
+    Ok(events)
 }
 
 fn channel_verify_output(channel_id: uuid::Uuid, assignee: &str, member_present: bool) -> Value {
@@ -378,6 +434,20 @@ fn channel_verify_output(channel_id: uuid::Uuid, assignee: &str, member_present:
         "member_present": member_present,
         "status": "ready",
     })
+}
+
+fn contract_info_output() -> Value {
+    json!({
+        "schema": SCHEMA,
+        "contract_version": 1,
+        "cli_schema": CLI_SCHEMA,
+        "status": "ready",
+    })
+}
+
+/// Print the local, non-mutating follow-up contract descriptor.
+pub fn print_contract_info() {
+    println!("{}", contract_info_output());
 }
 
 async fn cmd_channel_ensure(
@@ -585,7 +655,6 @@ async fn cmd_item_remove(
             "kinds": [5],
             "authors": [owner.to_hex()],
             "#h": [channel.to_string()],
-            "#item": [item],
             "#e": [target_event],
             "limit": 20,
         }))
@@ -653,6 +722,26 @@ async fn cmd_receipt(
     };
     let builder = build_receipt_event(channel, command, item, outcome, version, &content)
         .map_err(contract_error)?;
+    let owner = client.keys().public_key();
+    let existing_raw = client
+        .query(&receipt_replay_filter(owner, channel, command))
+        .await?;
+    if let Some(existing) = replayable_receipt(
+        decode_bounded_replay_candidates(&existing_raw, "follow-up receipt")?,
+        owner,
+        channel,
+        command,
+        item,
+        outcome,
+        version,
+        &content,
+    ) {
+        println!(
+            "{}",
+            stable_write_output(&existing, KIND_COS_FOLLOW_UP_RECEIPT, item, version, true,)
+        );
+        return Ok(());
+    }
     let event = client.sign_event(builder)?;
     client.submit_event(event.clone()).await?;
     println!(
@@ -723,6 +812,10 @@ pub async fn dispatch(
     format: &OutputFormat,
 ) -> Result<(), CliError> {
     match command {
+        FollowUpsCmd::ContractInfo => {
+            print_contract_info();
+            Ok(())
+        }
         FollowUpsCmd::ChannelEnsure { channel, assignee } => {
             cmd_channel_ensure(client, &channel, &assignee).await
         }
@@ -1015,5 +1108,97 @@ mod tests {
         .expect("an exact owner tombstone should be replayed");
 
         assert_eq!(replayed.id, identical.id);
+    }
+
+    #[test]
+    fn receipt_after_publish_crash_reuses_only_semantically_identical_owner_receipt() {
+        let owner_keys = Keys::generate();
+        let other_keys = Keys::generate();
+        let channel = uuid::Uuid::new_v4();
+        let command_id = "c".repeat(64);
+        let content = ReceiptContent {
+            schema: SCHEMA.into(),
+            message: Some("Applied".into()),
+            code: Some("accepted".into()),
+            retryable: false,
+        };
+        let identical = build_receipt_event(
+            channel,
+            &command_id,
+            "follow-up-17",
+            Outcome::Accepted,
+            8,
+            &content,
+        )
+        .unwrap()
+        .sign_with_keys(&owner_keys)
+        .unwrap();
+        let wrong_outcome = build_receipt_event(
+            channel,
+            &command_id,
+            "follow-up-17",
+            Outcome::Rejected,
+            8,
+            &content,
+        )
+        .unwrap()
+        .sign_with_keys(&owner_keys)
+        .unwrap();
+        let foreign = build_receipt_event(
+            channel,
+            &command_id,
+            "follow-up-17",
+            Outcome::Accepted,
+            8,
+            &content,
+        )
+        .unwrap()
+        .sign_with_keys(&other_keys)
+        .unwrap();
+
+        let replayed = replayable_receipt(
+            vec![wrong_outcome, foreign, identical.clone()],
+            owner_keys.public_key(),
+            channel,
+            &command_id,
+            "follow-up-17",
+            Outcome::Accepted,
+            8,
+            &content,
+        )
+        .expect("an identical owner receipt should be replayed");
+
+        assert_eq!(replayed.id, identical.id);
+    }
+
+    #[test]
+    fn receipt_replay_filter_uses_only_nip_01_queryable_tags() {
+        let owner = Keys::generate().public_key();
+        let channel = uuid::Uuid::new_v4();
+        let command_id = "c".repeat(64);
+
+        assert_eq!(
+            receipt_replay_filter(owner, channel, &command_id),
+            json!({
+                "kinds": [KIND_COS_FOLLOW_UP_RECEIPT],
+                "authors": [owner.to_hex()],
+                "#h": [channel.to_string()],
+                "#e": [command_id],
+                "limit": REPLAY_QUERY_LIMIT,
+            })
+        );
+    }
+
+    #[test]
+    fn contract_info_output_is_stable_and_contains_no_invented_revision() {
+        assert_eq!(
+            contract_info_output(),
+            json!({
+                "schema": "mac-workspace/cos-follow-up/v1",
+                "contract_version": 1,
+                "cli_schema": "mac-workspace/cos-follow-up-cli/v1",
+                "status": "ready",
+            })
+        );
     }
 }
