@@ -33,7 +33,7 @@ const GOOSE_AVAILABLE = {
 /** buzz-agent is always available and has no auth step. */
 const BUZZ_AGENT_AVAILABLE = {
   id: "buzz-agent",
-  label: "Buzz Agent",
+  label: "MAC Workspace Agent",
   avatar_url: "",
   availability: "available",
   command: "buzz-agent",
