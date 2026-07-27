@@ -139,20 +139,20 @@ fi
 grep -q 'WorktreeOverrides' "$release_xcconfig" \
   && fail "Release.xcconfig must not include WorktreeOverrides.xcconfig" \
   || pass "Release.xcconfig does not include WorktreeOverrides"
-grep -q '^BUNDLE_IDENTIFIER = com\.buzz\.buzzMobile$' "$release_xcconfig" \
+grep -q '^BUNDLE_IDENTIFIER = com\.macsurfacing\.workspace$' "$release_xcconfig" \
   && pass "Release.xcconfig keeps the production bundle identifier" \
-  || fail "Release.xcconfig must keep BUNDLE_IDENTIFIER = com.buzz.buzzMobile"
-grep -q '^APP_DISPLAY_NAME = Buzz$' "$release_xcconfig" \
+  || fail "Release.xcconfig must keep BUNDLE_IDENTIFIER = com.macsurfacing.workspace"
+grep -q '^APP_DISPLAY_NAME = MAC Workspace$' "$release_xcconfig" \
   && pass "Release.xcconfig keeps the production display name" \
-  || fail "Release.xcconfig must keep APP_DISPLAY_NAME = Buzz"
+  || fail "Release.xcconfig must keep APP_DISPLAY_NAME = MAC Workspace"
 grep -q '<string>$(APP_DISPLAY_NAME)</string>' "$plist" \
   && pass "Info.plist display name resolves from build settings" \
   || fail "Info.plist CFBundleDisplayName must be \$(APP_DISPLAY_NAME)"
 grep -q 'android:label="@string/app_name"' "$manifest" \
   && pass "Android manifest label resolves from resources" \
   || fail "Android manifest label must be @string/app_name"
-grep -q 'resValue("string", "app_name", "Buzz")' "$gradle" \
-  && pass "Gradle default app_name stays Buzz" \
+grep -q 'resValue("string", "app_name", "MAC Workspace")' "$gradle" \
+  && pass "Gradle default app_name stays MAC Workspace" \
   || fail "Gradle must declare the default app_name resValue"
 grep -q 'worktreeLabel.matches' "$gradle" \
   && pass "Gradle validates the worktree label before use" \
