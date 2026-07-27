@@ -264,14 +264,17 @@ test.describe("config bridge screenshots", () => {
       managedAgents: [
         {
           pubkey: BUZZ_AGENT_PUBKEY,
-          name: "Buzz Agent",
+          name: "MAC Workspace Agent",
           status: "running" as const,
           channelNames: ["agents"],
         },
       ],
     });
 
-    const panel = await openAgentProfileFromChannel(page, "Buzz Agent");
+    const panel = await openAgentProfileFromChannel(
+      page,
+      "MAC Workspace Agent",
+    );
 
     await expect(
       panel.getByText("No custom servers configured", { exact: true }),

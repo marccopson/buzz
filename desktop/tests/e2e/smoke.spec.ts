@@ -106,7 +106,7 @@ async function chooseSharedComputeProvider(
   await page
     .getByRole("menuitemradio", {
       exact: true,
-      name: "Buzz shared compute",
+      name: "MAC Workspace shared compute",
     })
     .click();
 }
