@@ -1033,17 +1033,11 @@ jobs:
           key: mesh-llama-${{ runner.os }}-metal-${{ steps.mesh_rev.outputs.rev }}
       - name: Build mesh llama native libraries
         if: steps.llama_cache.outputs.cache-hit != 'true'
-        env:
-          MESH_REV_SHORT: ${{ steps.mesh_rev.outputs.short }}
         run: |
           set -euo pipefail
-          cargo fetch --manifest-path desktop/src-tauri/Cargo.toml
-          SHORT="$MESH_REV_SHORT"
-          MESH_ROOT=$(find "${CARGO_HOME:-$HOME/.cargo}/git/checkouts" -path "*/$SHORT" -type d -name "$SHORT" | head -1)
-          if [[ -z "$MESH_ROOT" ]]; then
-            echo "::error::mesh-llm checkout for $SHORT not found after cargo fetch"
-            exit 1
-          fi
+          metadata=$(cargo metadata --manifest-path desktop/src-tauri/Cargo.toml --features mesh-llm --format-version 1)
+          SDK_MANIFEST=$(python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(p["manifest_path"] for p in data["packages"] if p["name"]=="mesh-llm-sdk"))' <<<"$metadata")
+          MESH_ROOT=$(cd "$(dirname "$SDK_MANIFEST")/../.." && pwd)
           export LLAMA_STAGE_BACKEND=metal
           export LLAMA_STAGE_BUILD_DIR="$GITHUB_WORKSPACE/.cache/mesh-llama/build-stage-abi-metal"
           export CMAKE_OSX_DEPLOYMENT_TARGET=10.15
