@@ -32,16 +32,8 @@ pub struct LegacyOnboardingCompletion {
 fn legacy_identifiers(current_identifier: &str) -> Vec<String> {
     if current_identifier.starts_with(WORKSPACE_DEV_IDENTIFIER_PREFIX) {
         vec![
-            current_identifier.replacen(
-                WORKSPACE_DEV_IDENTIFIER_PREFIX,
-                BUZZ_DEV_IDENTIFIER,
-                1,
-            ),
-            current_identifier.replacen(
-                WORKSPACE_DEV_IDENTIFIER_PREFIX,
-                SPROUT_DEV_IDENTIFIER,
-                1,
-            ),
+            current_identifier.replacen(WORKSPACE_DEV_IDENTIFIER_PREFIX, BUZZ_DEV_IDENTIFIER, 1),
+            current_identifier.replacen(WORKSPACE_DEV_IDENTIFIER_PREFIX, SPROUT_DEV_IDENTIFIER, 1),
         ]
     } else if current_identifier.starts_with(WORKSPACE_RELEASE_IDENTIFIER_PREFIX) {
         vec![

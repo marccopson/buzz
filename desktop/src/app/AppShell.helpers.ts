@@ -9,7 +9,8 @@ export type AppView =
   | "agents"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "running-order";
 
 const WINDOW_DRAG_HANDLE_HEIGHT = 44;
 const TAURI_DRAG_REGION_ATTR = "data-tauri-drag-region";
@@ -150,6 +151,13 @@ export function deriveShellRoute(pathname: string): {
     return {
       selectedChannelId: null,
       selectedView: "pulse",
+    };
+  }
+
+  if (pathname === "/running-order") {
+    return {
+      selectedChannelId: null,
+      selectedView: "running-order",
     };
   }
 

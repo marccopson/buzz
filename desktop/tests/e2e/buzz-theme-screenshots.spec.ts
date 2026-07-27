@@ -330,8 +330,8 @@ async function expectAppliedBuzzTheme(
       storedTheme,
       isDark,
       buzzTheme: themeName,
-      gradientTop: isDark ? "#4a4616" : "#e6e6b6",
-      gradientBottom: isDark ? "#0a1423" : "#c4d0da",
+      gradientTop: isDark ? "#2d3445" : "#2e387d",
+      gradientBottom: isDark ? "#2e387d" : "#93aabb",
     });
 }
 
@@ -380,7 +380,7 @@ test("buzz dark sidebar gradient", async ({ page }) => {
   await expectIconlessSectionTitleAligned(page, "dm-list");
   await expect(page.locator("[data-buzz-content-surface]")).toHaveCSS(
     "background-color",
-    "rgb(26, 26, 26)",
+    "rgb(45, 52, 69)",
   );
   await waitForAnimations(page);
   await page
@@ -509,7 +509,7 @@ test("settings nav uses Buzz active pill + hover (dark)", async ({ page }) => {
   await expectBuzzSettingsPalette(page, "dark");
   await expect(page.getByTestId("settings-content-surface")).toHaveCSS(
     "background-color",
-    "rgb(26, 26, 26)",
+    "rgb(45, 52, 69)",
   );
   await waitForAnimations(page);
   await sidebar.screenshot({ path: `${SHOTS}/07-settings-nav-dark.png` });

@@ -41,9 +41,7 @@ fn legacy_app_data_dirs_map_dev_worktree_identifiers_in_preference_order() {
     assert_eq!(
         legacy,
         vec![
-            PathBuf::from(
-                "/Users/me/Library/Application Support/xyz.block.buzz.app.dev.my-branch",
-            ),
+            PathBuf::from("/Users/me/Library/Application Support/xyz.block.buzz.app.dev.my-branch",),
             PathBuf::from(
                 "/Users/me/Library/Application Support/xyz.block.sprout.app.dev.my-branch",
             ),

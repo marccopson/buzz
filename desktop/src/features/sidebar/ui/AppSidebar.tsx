@@ -105,7 +105,8 @@ type AppSidebarProps = {
     | "agents"
     | "workflows"
     | "pulse"
-    | "projects";
+    | "projects"
+    | "running-order";
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
   communities: Community[];
@@ -145,6 +146,7 @@ type AppSidebarProps = {
   onSelectAgents: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
+  onSelectRunningOrder: () => void;
   onSelectWorkflows: () => void;
   onSelectHome: () => void;
   onSelectChannel: (channelId: string) => void;
@@ -214,6 +216,7 @@ export function AppSidebar({
   onSelectAgents,
   onSelectProjects,
   onSelectPulse,
+  onSelectRunningOrder,
   onSelectWorkflows,
   onSelectHome,
   onSelectChannel,
@@ -562,7 +565,9 @@ export function AppSidebar({
       variant="sidebar"
     >
       <div
-        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        className={`relative flex min-h-0 flex-1 flex-col overflow-hidden ${
+          communities.length > 1 ? "md:-ml-[11px] md:w-[calc(100%+11px)]" : ""
+        }`}
         data-sidebar-background
         data-testid="app-sidebar-scroll-anchor"
       >
@@ -610,6 +615,7 @@ export function AppSidebar({
                 onSelectHome={onSelectHome}
                 onSelectProjects={onSelectProjects}
                 onSelectPulse={onSelectPulse}
+                onSelectRunningOrder={onSelectRunningOrder}
                 onSelectWorkflows={onSelectWorkflows}
                 selectedView={selectedView}
               />

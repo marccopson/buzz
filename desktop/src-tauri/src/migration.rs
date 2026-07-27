@@ -72,16 +72,8 @@ pub(crate) fn legacy_app_data_dirs(current: &Path) -> Vec<PathBuf> {
         ]
     } else if name.starts_with("com.macsurfacing.workspace") {
         vec![
-            name.replacen(
-                "com.macsurfacing.workspace",
-                BUZZ_RELEASE_IDENTIFIER,
-                1,
-            ),
-            name.replacen(
-                "com.macsurfacing.workspace",
-                SPROUT_RELEASE_IDENTIFIER,
-                1,
-            ),
+            name.replacen("com.macsurfacing.workspace", BUZZ_RELEASE_IDENTIFIER, 1),
+            name.replacen("com.macsurfacing.workspace", SPROUT_RELEASE_IDENTIFIER, 1),
         ]
     } else {
         return Vec::new();
@@ -200,6 +192,11 @@ fn run_boot_migrations_inner(app: &tauri::AppHandle, reset_completed: bool) {
     // Post-fold readers of the runtime map (`load_persona_runtimes`) fall
     // back to the unified store's definitions.
     fold_personas_into_agent_store(app);
+    // Clean the legacy baked team-instructions suffix out of stored prompts
+    // AFTER the fold (so definitions lifted out of personas.json are cleaned in
+    // the same boot) and BEFORE backfill_standalone_agents (so a manufactured
+    // definition never snapshots a suffix this strips).
+    strip_baked_team_instructions(app);
     refresh_builtin_agent_avatars(app);
     // B5: manufacture definitions for standalone agents AFTER the fold (so
     // pre-existing definition slugs are present for collision checks) and
@@ -1385,7 +1382,6 @@ pub fn migrate_persona_provider_to_runtime(app: &tauri::AppHandle) {
     }
     rename_provider_to_runtime_in_personas(&path);
 }
-
 mod materialize;
 pub use materialize::materialize_agent_runtimes;
 mod fold;
@@ -1395,6 +1391,8 @@ mod backfill;
 pub use backfill::backfill_standalone_agents;
 mod detach;
 pub use detach::detach_directory_backed_teams;
+mod team_suffix;
+pub use team_suffix::strip_baked_team_instructions;
 
 #[cfg(test)]
 #[path = "migration_test_support.rs"]
