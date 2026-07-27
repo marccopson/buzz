@@ -72,16 +72,8 @@ pub(crate) fn legacy_app_data_dirs(current: &Path) -> Vec<PathBuf> {
         ]
     } else if name.starts_with("com.macsurfacing.workspace") {
         vec![
-            name.replacen(
-                "com.macsurfacing.workspace",
-                BUZZ_RELEASE_IDENTIFIER,
-                1,
-            ),
-            name.replacen(
-                "com.macsurfacing.workspace",
-                SPROUT_RELEASE_IDENTIFIER,
-                1,
-            ),
+            name.replacen("com.macsurfacing.workspace", BUZZ_RELEASE_IDENTIFIER, 1),
+            name.replacen("com.macsurfacing.workspace", SPROUT_RELEASE_IDENTIFIER, 1),
         ]
     } else {
         return Vec::new();

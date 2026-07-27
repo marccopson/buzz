@@ -712,7 +712,10 @@ mod tests {
         let outcome = run_boot_reset_with_keychain(ctx);
 
         assert!(outcome.completed, "reset must complete");
-        assert!(!current_webkit.exists(), "current WebKit dir must be removed");
+        assert!(
+            !current_webkit.exists(),
+            "current WebKit dir must be removed"
+        );
         assert!(!buzz_webkit.exists(), "Buzz WebKit dir must be removed");
         assert!(!sprout_webkit.exists(), "Sprout WebKit dir must be removed");
     }
