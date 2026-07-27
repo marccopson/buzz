@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { shouldBounceForChannelNotification } from "./AppShell.helpers.ts";
+import {
+  deriveShellRoute,
+  shouldBounceForChannelNotification,
+} from "./AppShell.helpers.ts";
 
 test("shouldBounceForChannelNotification_allowsTopLevelChannelMessages", () => {
   assert.equal(shouldBounceForChannelNotification([["h", "channel"]]), true);
@@ -26,4 +29,11 @@ test("shouldBounceForChannelNotification_allowsBroadcastReplies", () => {
     ]),
     true,
   );
+});
+
+test("deriveShellRoute selects the COS running order", () => {
+  assert.deepEqual(deriveShellRoute("/running-order"), {
+    selectedChannelId: null,
+    selectedView: "running-order",
+  });
 });

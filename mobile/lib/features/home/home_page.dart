@@ -10,6 +10,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../shared/theme/theme.dart';
 import '../activity/activity_page.dart';
 import '../channels/channels_page.dart';
+import '../cos_running_order/cos_running_order_page.dart';
 import '../search/search_page.dart';
 
 class HomePage extends HookConsumerWidget {
@@ -45,6 +46,11 @@ class HomePage extends HookConsumerWidget {
       selectedIcon: LucideIcons.search500,
       label: 'Search',
     ),
+    _HomeDestination(
+      icon: LucideIcons.listChecks300,
+      selectedIcon: LucideIcons.listChecks500,
+      label: 'COS',
+    ),
   ];
 
   @override
@@ -60,6 +66,7 @@ class HomePage extends HookConsumerWidget {
       ChannelsPage(settingsPageBuilder: settingsPageBuilder),
       const ActivityPage(),
       const SearchPage(),
+      const CosRunningOrderPage(),
     ];
 
     return Scaffold(

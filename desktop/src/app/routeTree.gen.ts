@@ -7,6 +7,7 @@
 import { Route as rootRouteImport } from "./routes/root";
 import { Route as workflowsRouteImport } from "./routes/workflows";
 import { Route as settingsRouteImport } from "./routes/settings";
+import { Route as runningOrderRouteImport } from "./routes/running-order";
 import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
@@ -26,6 +27,11 @@ const workflowsRoute = workflowsRouteImport.update({
 const settingsRoute = settingsRouteImport.update({
   id: "/settings",
   path: "/settings",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const runningOrderRoute = runningOrderRouteImport.update({
+  id: "/running-order",
+  path: "/running-order",
   getParentRoute: () => rootRouteImport,
 } as any);
 const remindersRoute = remindersRouteImport.update({
@@ -86,6 +92,7 @@ export interface FileRoutesByFullPath {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
+  "/running-order": typeof runningOrderRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
@@ -100,6 +107,7 @@ export interface FileRoutesByTo {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
+  "/running-order": typeof runningOrderRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
@@ -115,6 +123,7 @@ export interface FileRoutesById {
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
   "/reminders": typeof remindersRoute;
+  "/running-order": typeof runningOrderRoute;
   "/settings": typeof settingsRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
+    | "/running-order"
     | "/settings"
     | "/workflows"
     | "/channels/$channelId"
@@ -145,6 +155,7 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
+    | "/running-order"
     | "/settings"
     | "/workflows"
     | "/channels/$channelId"
@@ -159,6 +170,7 @@ export interface FileRouteTypes {
     | "/projects"
     | "/pulse"
     | "/reminders"
+    | "/running-order"
     | "/settings"
     | "/workflows"
     | "/channels/$channelId"
@@ -174,6 +186,7 @@ export interface RootRouteChildren {
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
   remindersRoute: typeof remindersRoute;
+  runningOrderRoute: typeof runningOrderRoute;
   settingsRoute: typeof settingsRoute;
   workflowsRoute: typeof workflowsRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
@@ -197,6 +210,13 @@ declare module "@tanstack/react-router" {
       path: "/settings";
       fullPath: "/settings";
       preLoaderRoute: typeof settingsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/running-order": {
+      id: "/running-order";
+      path: "/running-order";
+      fullPath: "/running-order";
+      preLoaderRoute: typeof runningOrderRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/reminders": {
@@ -278,6 +298,7 @@ const rootRouteChildren: RootRouteChildren = {
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,
   remindersRoute: remindersRoute,
+  runningOrderRoute: runningOrderRoute,
   settingsRoute: settingsRoute,
   workflowsRoute: workflowsRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,

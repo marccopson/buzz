@@ -90,6 +90,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goRunningOrder = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/running-order",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goProject = React.useCallback(
     (
       projectId: string,
@@ -303,6 +314,7 @@ export function useAppNavigation() {
     goProject,
     goProjects,
     goPulse,
+    goRunningOrder,
     goSettings,
     goWorkflow,
     goWorkflows,
