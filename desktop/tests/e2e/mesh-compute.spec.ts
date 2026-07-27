@@ -34,7 +34,7 @@ test("Share compute has a clear empty state and starts and stops sharing", async
 
   await model.fill("hf://demo/SmolLM2-135M-Instruct-GGUF:Q4_K_M");
   await expect(card).toContainText(
-    "Buzz downloads remote models when sharing starts",
+    "MAC Workspace downloads remote models when sharing starts",
   );
   await expect(toggle).toBeEnabled();
 
