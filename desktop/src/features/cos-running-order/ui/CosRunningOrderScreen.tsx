@@ -29,7 +29,8 @@ const JIRA_BASE_URL = "https://macsurfacing.atlassian.net/browse";
 const STATE_PRESENTATION = {
   blocked: { label: "Blocked", variant: "destructive" },
   "human-test": { label: "Human test", variant: "warning" },
-  running: { label: "Running", variant: "info" },
+  running: { label: "Agent running", variant: "info" },
+  active: { label: "Jira active", variant: "secondary" },
   ready: { label: "Ready", variant: "success" },
   queued: { label: "Queued", variant: "secondary" },
   completed: { label: "Completed", variant: "success" },
@@ -38,7 +39,8 @@ const STATE_PRESENTATION = {
 const FILTERS: Array<{ value: CosRunningOrderFilter; label: string }> = [
   { value: "focus", label: "Focus" },
   { value: "blocked", label: "Blocked" },
-  { value: "running", label: "Running" },
+  { value: "running", label: "Agent running" },
+  { value: "active", label: "Jira active" },
   { value: "ready", label: "Ready" },
   { value: "human-test", label: "Human test" },
   { value: "queued", label: "Queue" },
@@ -261,7 +263,7 @@ export function CosRunningOrderScreen() {
                 </div>
               </section>
 
-              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
                 <StatCard
                   icon={<AlertTriangle className="h-4 w-4" />}
                   label="Blocked"
@@ -270,9 +272,15 @@ export function CosRunningOrderScreen() {
                 />
                 <StatCard
                   icon={<CircleDot className="h-4 w-4" />}
-                  label="Running"
+                  label="Agent running"
                   tone="bg-blue-500/10 text-blue-600 dark:text-blue-400"
                   value={runningOrder.counts.running}
+                />
+                <StatCard
+                  icon={<ListChecks className="h-4 w-4" />}
+                  label="Jira active"
+                  tone="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                  value={runningOrder.counts.active}
                 />
                 <StatCard
                   icon={<CheckCircle2 className="h-4 w-4" />}

@@ -24,6 +24,7 @@ class _RunningOrderBody extends StatelessWidget {
           item.state == CosRunningOrderState.blocked,
         _RunningOrderFilter.running =>
           item.state == CosRunningOrderState.running,
+        _RunningOrderFilter.active => item.state == CosRunningOrderState.active,
         _RunningOrderFilter.ready => item.state == CosRunningOrderState.ready,
         _RunningOrderFilter.humanTest =>
           item.state == CosRunningOrderState.humanTest,
@@ -63,7 +64,11 @@ class _RunningOrderBody extends StatelessWidget {
                     ),
                     FilterChipItem(
                       id: _RunningOrderFilter.running,
-                      label: 'Running',
+                      label: 'Agent running',
+                    ),
+                    FilterChipItem(
+                      id: _RunningOrderFilter.active,
+                      label: 'Jira active',
                     ),
                     FilterChipItem(
                       id: _RunningOrderFilter.ready,
@@ -183,7 +188,11 @@ class _SummaryGrid extends StatelessWidget {
         ),
         const SizedBox(width: Grid.half),
         Expanded(
-          child: _SummaryValue(label: 'Running', value: counts.running),
+          child: _SummaryValue(label: 'Agent runs', value: counts.running),
+        ),
+        const SizedBox(width: Grid.half),
+        Expanded(
+          child: _SummaryValue(label: 'Jira active', value: counts.active),
         ),
         const SizedBox(width: Grid.half),
         Expanded(
@@ -238,7 +247,8 @@ class _RunningOrderCard extends StatelessWidget {
     final stateLabel = switch (item.state) {
       CosRunningOrderState.blocked => 'Blocked',
       CosRunningOrderState.humanTest => 'Human test',
-      CosRunningOrderState.running => 'Running',
+      CosRunningOrderState.running => 'Agent running',
+      CosRunningOrderState.active => 'Jira active',
       CosRunningOrderState.ready => 'Ready',
       CosRunningOrderState.queued => 'Queued',
       CosRunningOrderState.completed => 'Completed',

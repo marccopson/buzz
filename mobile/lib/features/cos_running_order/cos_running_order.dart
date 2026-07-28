@@ -2,12 +2,14 @@ enum CosRunningOrderState {
   blocked,
   humanTest,
   running,
+  active,
   ready,
   queued,
   completed,
 }
 
 class CosRunningOrderCounts {
+  final int active;
   final int blocked;
   final int completed;
   final int humanTest;
@@ -16,6 +18,7 @@ class CosRunningOrderCounts {
   final int running;
 
   const CosRunningOrderCounts({
+    required this.active,
     required this.blocked,
     required this.completed,
     required this.humanTest,
@@ -26,12 +29,13 @@ class CosRunningOrderCounts {
 
   factory CosRunningOrderCounts.fromJson(Map<String, dynamic> json) {
     return CosRunningOrderCounts(
+      active: _integer(json['active']),
       blocked: _integer(json['blocked']),
       completed: _integer(json['completed']),
       humanTest: _integer(json['human_test']),
       queued: _integer(json['queued']),
       ready: _integer(json['ready']),
-      running: _integer(json['running']),
+      running: _integer(json['agent_running'] ?? json['running']),
     );
   }
 }
@@ -61,7 +65,7 @@ class CosRunningOrderItem {
       summary: _text(json['summary']),
       jiraStatus: _text(json['jira_status']),
       priority: _text(json['priority']),
-      state: _state(json['state']),
+      state: _state(json['execution_state'] ?? json['state']),
       blockers: _strings(json['blockers']),
       stagingEvidenced: json['staging_evidenced'] == true,
     );
@@ -143,6 +147,7 @@ CosRunningOrderState _state(dynamic value) {
     'blocked' => CosRunningOrderState.blocked,
     'human-test' => CosRunningOrderState.humanTest,
     'running' => CosRunningOrderState.running,
+    'active' => CosRunningOrderState.active,
     'ready' => CosRunningOrderState.ready,
     'queued' => CosRunningOrderState.queued,
     'completed' => CosRunningOrderState.completed,

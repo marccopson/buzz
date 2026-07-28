@@ -13,7 +13,15 @@ import 'cos_running_order_provider.dart';
 
 part 'cos_running_order_page/body.dart';
 
-enum _RunningOrderFilter { focus, blocked, running, ready, humanTest, queued }
+enum _RunningOrderFilter {
+  focus,
+  blocked,
+  running,
+  active,
+  ready,
+  humanTest,
+  queued,
+}
 
 class CosRunningOrderPage extends HookConsumerWidget {
   const CosRunningOrderPage({super.key});

@@ -18,12 +18,14 @@ test("projectCosRunningOrder accepts the stable workspace adapter contract", () 
     staging_revision: "9c351c0ce66071cf2380edcc31e413d176f0b3d2",
     source_errors: [],
     counts: {
+      active: 1,
+      agent_running: 1,
       blocked: 1,
       completed: 0,
       human_test: 0,
       queued: 1,
       ready: 0,
-      running: 1,
+      running: 2,
     },
     items: [
       {
@@ -57,6 +59,19 @@ test("projectCosRunningOrder accepts the stable workspace adapter contract", () 
         staging_evidenced: false,
       },
       {
+        key: "COS-104",
+        summary: "Active in Jira",
+        jira_status: "In Progress",
+        priority: "Medium",
+        state: "running",
+        execution_state: "active",
+        admission_signals: [],
+        blockers: [],
+        pull_requests: [],
+        active_run: null,
+        staging_evidenced: false,
+      },
+      {
         key: "COS-101",
         summary: "Queued work",
         jira_status: "Backlog",
@@ -72,6 +87,7 @@ test("projectCosRunningOrder accepts the stable workspace adapter contract", () 
   });
 
   assert.deepEqual(snapshot.counts, {
+    active: 1,
     blocked: 1,
     completed: 0,
     humanTest: 0,
@@ -84,13 +100,15 @@ test("projectCosRunningOrder accepts the stable workspace adapter contract", () 
   assert.equal(snapshot.items[0]?.blockers[0], "PR #22 has failed checks");
   assert.equal(snapshot.items[1]?.key, "COS-103");
   assert.equal(snapshot.items[1]?.state, "running");
+  assert.equal(snapshot.items[2]?.key, "COS-104");
+  assert.equal(snapshot.items[2]?.state, "active");
   assert.equal(
     snapshot.stagingRevision,
     "9c351c0ce66071cf2380edcc31e413d176f0b3d2",
   );
   assert.deepEqual(
     selectCosRunningOrderItems(snapshot.items, "focus").map((item) => item.key),
-    ["COS-102", "COS-103"],
+    ["COS-102", "COS-103", "COS-104"],
   );
   assert.deepEqual(
     selectCosRunningOrderItems(snapshot.items, "queued").map(
@@ -115,6 +133,7 @@ test("loadCosRunningOrder reads the adapter beside the active community relay", 
         staging_revision: "abc123",
         source_errors: [],
         counts: {
+          active: 0,
           blocked: 0,
           completed: 0,
           human_test: 0,
