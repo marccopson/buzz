@@ -92,7 +92,11 @@ build-release:
     cargo build --workspace --release
 
 # Run repo lint and formatting checks
-check: fmt-check clippy desktop-check desktop-tauri-fmt-check desktop-tauri-clippy web-check mobile-check
+check: fmt-check clippy desktop-check desktop-tauri-fmt-check desktop-tauri-clippy web-check mobile-check docker-tag-matrix-check
+
+# Verify Docker release/debug tag generation cannot double-apply a variant prefix
+docker-tag-matrix-check:
+    ./scripts/test-docker-tag-matrix.sh
 
 # Format all Rust code
 fmt:
