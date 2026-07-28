@@ -23,6 +23,14 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(value as? String, "shown")
         acknowledged.fulfill()
       },
+      settings: { completion in
+        completion(
+          FollowUpNotificationSettings(
+            authorizationStatus: .authorized,
+            alertSetting: .enabled
+          )
+        )
+      },
       schedule: { request, completion in
         XCTAssertEqual(request.identifier, "event-1")
         XCTAssertEqual(request.content.title, "We need you")
@@ -51,12 +59,101 @@ class RunnerTests: XCTestCase {
         XCTAssertEqual(value as? String, "denied")
         acknowledged.fulfill()
       },
+      settings: { completion in
+        completion(
+          FollowUpNotificationSettings(
+            authorizationStatus: .authorized,
+            alertSetting: .enabled
+          )
+        )
+      },
       schedule: { _, completion in
         completion(NSError(domain: "notifications", code: 1))
       }
     )
 
     wait(for: [acknowledged], timeout: 1)
+  }
+
+  func testFollowUpNotificationDeniedPermissionStaysRetryableUntilRestored() {
+    let denied = expectation(description: "notification denied")
+    let restored = expectation(description: "notification shown after restoration")
+    let call = FlutterMethodCall(
+      methodName: "show",
+      arguments: [
+        "id": "event-1",
+        "title": "We need you",
+        "body": "Confirm the evidence",
+      ]
+    )
+    var settings = FollowUpNotificationSettings(
+      authorizationStatus: .denied,
+      alertSetting: .enabled
+    )
+    var scheduleCount = 0
+
+    func invoke(expected: String, expectation: XCTestExpectation) {
+      AppDelegate.handleFollowUpNotificationMethodCall(
+        call,
+        result: { value in
+          XCTAssertEqual(value as? String, expected)
+          expectation.fulfill()
+        },
+        settings: { completion in completion(settings) },
+        schedule: { _, completion in
+          scheduleCount += 1
+          completion(nil)
+        }
+      )
+    }
+
+    invoke(expected: "denied", expectation: denied)
+    wait(for: [denied], timeout: 1)
+    XCTAssertEqual(scheduleCount, 0)
+
+    settings = FollowUpNotificationSettings(
+      authorizationStatus: .authorized,
+      alertSetting: .enabled
+    )
+    invoke(expected: "shown", expectation: restored)
+    wait(for: [restored], timeout: 1)
+    XCTAssertEqual(scheduleCount, 1)
+  }
+
+  func testFollowUpNotificationSystemDisabledDoesNotSchedule() {
+    let acknowledged = expectation(description: "notification denied")
+    let call = FlutterMethodCall(
+      methodName: "show",
+      arguments: [
+        "id": "event-1",
+        "title": "We need you",
+        "body": "Confirm the evidence",
+      ]
+    )
+    var scheduleCount = 0
+
+    AppDelegate.handleFollowUpNotificationMethodCall(
+      call,
+      result: { value in
+        XCTAssertEqual(value as? String, "denied")
+        acknowledged.fulfill()
+      },
+      settings: { completion in
+        completion(
+          FollowUpNotificationSettings(
+            authorizationStatus: .authorized,
+            alertSetting: .disabled
+          )
+        )
+      },
+      schedule: { _, completion in
+        scheduleCount += 1
+        completion(nil)
+      }
+    )
+
+    wait(for: [acknowledged], timeout: 1)
+    XCTAssertEqual(scheduleCount, 0)
   }
 
   func testDynamicIslandQrScannerRecognizesTallSafeAreas() {

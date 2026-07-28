@@ -53,34 +53,35 @@ void main() {
     },
   );
 
-  test(
-    'denied delivery stays pending and retries after permission grant',
-    () async {
-      SharedPreferences.setMockInitialValues({});
-      final prefs = await SharedPreferences.getInstance();
-      final session = _FakeRelaySession();
-      final sink = _SequenceNotificationSink([
-        CosFollowUpNotificationDelivery.denied,
-        CosFollowUpNotificationDelivery.shown,
-      ]);
-      final container = _container(prefs: prefs, session: session, sink: sink);
-      addTearDown(container.dispose);
+  test('denied or system-disabled delivery stays pending, restores once, and '
+      'does not duplicate', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final session = _FakeRelaySession();
+    final sink = _SequenceNotificationSink([
+      CosFollowUpNotificationDelivery.denied,
+      CosFollowUpNotificationDelivery.shown,
+    ]);
+    final container = _container(prefs: prefs, session: session, sink: sink);
+    addTearDown(container.dispose);
 
-      final notifier = container.read(cosFollowUpProvider.notifier);
-      await _waitUntil(() => session.itemListener != null);
-      session.itemListener!(_itemEvent());
-      await _waitUntil(() => sink.calls == 1);
+    final notifier = container.read(cosFollowUpProvider.notifier);
+    await _waitUntil(() => session.itemListener != null);
+    session.itemListener!(_itemEvent());
+    await _waitUntil(() => sink.calls == 1);
 
-      expect(_storedItems(prefs, seenKey), isNot(contains('item-1')));
-      expect(prefs.getString(pendingKey), isNotNull);
+    expect(_storedItems(prefs, seenKey), isNot(contains('item-1')));
+    expect(prefs.getString(pendingKey), isNotNull);
 
-      await notifier.retryPendingNotifications();
-      await _waitUntil(() => sink.calls == 2);
-      await _waitUntil(() => _storedItems(prefs, seenKey).contains('item-1'));
+    await notifier.retryPendingNotifications();
+    await _waitUntil(() => sink.calls == 2);
+    await _waitUntil(() => _storedItems(prefs, seenKey).contains('item-1'));
 
-      expect(prefs.getString(pendingKey), isNull);
-    },
-  );
+    expect(prefs.getString(pendingKey), isNull);
+    await notifier.retryPendingNotifications();
+    await _flushAsync();
+    expect(sink.calls, 2, reason: 'restoration must acknowledge exactly once');
+  });
 
   test(
     'restart recovers a denied notification before history catches up',
@@ -223,6 +224,57 @@ void main() {
       expect(session.removalListener, isNotNull);
     },
   );
+
+  test('post-EOSE rate-limit and transient CLOSED reconcile item and tombstone '
+      'history on bounded replacement subscriptions', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final session = _FakeRelaySession(itemHistory: [_itemEvent()]);
+    final container = _container(
+      prefs: prefs,
+      session: session,
+      sink: _SequenceNotificationSink([]),
+    );
+    addTearDown(container.dispose);
+
+    container.read(cosFollowUpProvider);
+    await _waitUntil(() => !container.read(cosFollowUpProvider).loading);
+    await _waitUntil(() => session.removalListener != null);
+    expect(container.read(cosFollowUpProvider).items.single.version, 1);
+
+    session.closeItemSubscription('rate-limited: quota exceeded');
+    session.addHistoricalItem(_itemEvent(eventId: 'event-2', version: 2));
+
+    expect(
+      container.read(cosFollowUpProvider).loadError,
+      contains('Live updates interrupted'),
+      reason: 'a dead live fence must never leave silently stale state',
+    );
+    await _waitUntil(
+      () =>
+          session.itemSubscribeCalls == 2 &&
+          container.read(cosFollowUpProvider).items.single.version == 2,
+      timeout: const Duration(seconds: 3),
+    );
+    expect(container.read(cosFollowUpProvider).loadError, isNull);
+
+    session.closeRemovalSubscription('transient: relay restarting');
+    session.removeHistoricalItem('event-2');
+
+    expect(
+      container.read(cosFollowUpProvider).loadError,
+      contains('Live updates interrupted'),
+    );
+    await _waitUntil(
+      () =>
+          session.removalSubscribeCalls == 2 &&
+          container.read(cosFollowUpProvider).items.isEmpty,
+      timeout: const Duration(seconds: 3),
+    );
+    expect(container.read(cosFollowUpProvider).loadError, isNull);
+    expect(session.activeItemListeners, 1);
+    expect(session.activeRemovalListeners, 0);
+  });
 }
 
 Set<String> _storedItems(SharedPreferences prefs, String key) {
@@ -248,12 +300,16 @@ ProviderContainer _container({
   ],
 );
 
-Future<void> _waitUntil(bool Function() predicate) async {
-  for (var attempt = 0; attempt < 100; attempt++) {
+Future<void> _waitUntil(
+  bool Function() predicate, {
+  Duration timeout = const Duration(seconds: 2),
+}) async {
+  final deadline = DateTime.now().add(timeout);
+  while (DateTime.now().isBefore(deadline)) {
     if (predicate()) return;
-    await Future<void>.delayed(Duration.zero);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
   }
-  fail('Condition was not reached');
+  fail('Condition was not reached within $timeout');
 }
 
 Future<void> _flushAsync() async {
@@ -370,11 +426,42 @@ class _FakeRelaySession extends RelaySessionNotifier {
   bool _emittedRemovalDuringHistory = false;
   void Function(NostrEvent)? itemListener;
   void Function(NostrEvent)? removalListener;
+  void Function(String message)? _itemOnClosed;
+  void Function(String message)? _removalOnClosed;
+  int itemSubscribeCalls = 0;
+  int removalSubscribeCalls = 0;
 
   _FakeRelaySession({
-    this.itemHistory = const [],
+    List<NostrEvent> itemHistory = const [],
     this.emitRemovalDuringItemHistory = false,
-  });
+  }) : itemHistory = [...itemHistory];
+
+  int get activeItemListeners => itemListener == null ? 0 : 1;
+  int get activeRemovalListeners => removalListener == null ? 0 : 1;
+
+  void addHistoricalItem(NostrEvent event) {
+    final itemId = event.getTagValue('d');
+    itemHistory.removeWhere(
+      (candidate) => candidate.getTagValue('d') == itemId,
+    );
+    itemHistory.add(event);
+  }
+
+  void removeHistoricalItem(String eventId) => _removedEventIds.add(eventId);
+
+  void closeItemSubscription(String message) {
+    itemListener = null;
+    final onClosed = _itemOnClosed;
+    _itemOnClosed = null;
+    onClosed?.call(message);
+  }
+
+  void closeRemovalSubscription(String message) {
+    removalListener = null;
+    final onClosed = _removalOnClosed;
+    _removalOnClosed = null;
+    onClosed?.call(message);
+  }
 
   @override
   SessionState build() => const SessionState(status: SessionStatus.connected);
@@ -406,19 +493,39 @@ class _FakeRelaySession extends RelaySessionNotifier {
     void Function(String message)? onClosed,
   }) async {
     if (filter.kinds.contains(EventKind.cosFollowUpItem)) {
-      itemListener = (event) {
+      itemSubscribeCalls++;
+      void listener(NostrEvent event) {
         _liveItemHistory.add(event);
         onEvent(event);
+      }
+
+      itemListener = listener;
+      _itemOnClosed = onClosed;
+      return () {
+        if (identical(itemListener, listener)) {
+          itemListener = null;
+          _itemOnClosed = null;
+        }
       };
     }
     if (filter.kinds.contains(EventKind.deletion)) {
-      removalListener = (event) {
+      removalSubscribeCalls++;
+      void listener(NostrEvent event) {
         final target = event.tags
             .where((tag) => tag.length == 2 && tag[0] == 'e')
             .map((tag) => tag[1])
             .firstOrNull;
         if (target != null) _removedEventIds.add(target);
         onEvent(event);
+      }
+
+      removalListener = listener;
+      _removalOnClosed = onClosed;
+      return () {
+        if (identical(removalListener, listener)) {
+          removalListener = null;
+          _removalOnClosed = null;
+        }
       };
     }
     return () {};

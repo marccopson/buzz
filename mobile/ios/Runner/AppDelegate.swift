@@ -8,6 +8,28 @@ typealias FollowUpNotificationScheduler = (
   @escaping (Error?) -> Void
 ) -> Void
 
+struct FollowUpNotificationSettings {
+  let authorizationStatus: UNAuthorizationStatus
+  let alertSetting: UNNotificationSetting
+
+  var allowsDelivery: Bool {
+    let authorized: Bool
+    switch authorizationStatus {
+    case .authorized, .provisional, .ephemeral:
+      authorized = true
+    case .notDetermined, .denied:
+      authorized = false
+    @unknown default:
+      authorized = false
+    }
+    return authorized && alertSetting == .enabled
+  }
+}
+
+typealias FollowUpNotificationSettingsReader = (
+  @escaping (FollowUpNotificationSettings) -> Void
+) -> Void
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var mediaUploadChannel: FlutterMethodChannel?
@@ -60,7 +82,17 @@ typealias FollowUpNotificationScheduler = (
   static func handleFollowUpNotificationMethodCall(
     _ call: FlutterMethodCall,
     result: @escaping FlutterResult,
-    schedule: FollowUpNotificationScheduler = { request, completion in
+    settings: FollowUpNotificationSettingsReader = { completion in
+      UNUserNotificationCenter.current().getNotificationSettings { value in
+        completion(
+          FollowUpNotificationSettings(
+            authorizationStatus: value.authorizationStatus,
+            alertSetting: value.alertSetting
+          )
+        )
+      }
+    },
+    schedule: @escaping FollowUpNotificationScheduler = { request, completion in
       UNUserNotificationCenter.current().add(
         request,
         withCompletionHandler: completion
@@ -95,9 +127,17 @@ typealias FollowUpNotificationScheduler = (
       content: content,
       trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
     )
-    schedule(request) { error in
-      DispatchQueue.main.async {
-        result(error == nil ? "shown" : "denied")
+    settings { current in
+      guard current.allowsDelivery else {
+        DispatchQueue.main.async {
+          result("denied")
+        }
+        return
+      }
+      schedule(request) { error in
+        DispatchQueue.main.async {
+          result(error == nil ? "shown" : "denied")
+        }
       }
     }
   }

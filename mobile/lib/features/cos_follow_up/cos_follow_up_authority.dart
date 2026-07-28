@@ -1,7 +1,9 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http/http.dart' as http;
+import 'package:pointycastle/ecc/curves/secp256k1.dart';
 
 import '../../shared/relay/relay_provider.dart';
 
@@ -26,10 +28,26 @@ String? parseCosFollowUpBridgePubkey(Object? document) {
     return null;
   }
   final pubkey = authority['bridge_pubkey'];
-  if (pubkey is! String || !RegExp(r'^[0-9a-f]{64}$').hasMatch(pubkey)) {
+  if (pubkey is! String || !_isValidNostrXOnlyPubkey(pubkey)) {
     return null;
   }
   return pubkey;
+}
+
+bool _isValidNostrXOnlyPubkey(String value) {
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(value)) return false;
+  try {
+    final compressed = Uint8List(33)..[0] = 0x02;
+    for (var index = 0; index < 32; index++) {
+      compressed[index + 1] = int.parse(
+        value.substring(index * 2, index * 2 + 2),
+        radix: 16,
+      );
+    }
+    return ECCurve_secp256k1().curve.decodePoint(compressed) != null;
+  } on Object {
+    return false;
+  }
 }
 
 final cosFollowUpBridgePubkeyProvider = FutureProvider<String?>((ref) async {

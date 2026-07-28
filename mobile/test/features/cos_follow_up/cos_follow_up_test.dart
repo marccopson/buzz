@@ -24,6 +24,13 @@ void main() {
     );
     expect(
       parseCosFollowUpBridgePubkey({
+        'cos_follow_up': {...authority, 'bridge_pubkey': 'f' * 64},
+      }),
+      isNull,
+      reason: 'an x-coordinate outside secp256k1 is not a Nostr pubkey',
+    );
+    expect(
+      parseCosFollowUpBridgePubkey({
         'cos_follow_up': {...authority, 'channel_mapping': 'untrusted'},
       }),
       isNull,

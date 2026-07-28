@@ -112,6 +112,14 @@ class _PendingCosFollowUpNotification {
 }
 
 class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
+  static const _subscriptionRecoveryDelays = [
+    Duration(milliseconds: 250),
+    Duration(milliseconds: 500),
+    Duration(seconds: 1),
+    Duration(seconds: 2),
+    Duration(seconds: 4),
+  ];
+
   void Function()? _unsubscribeItems;
   final _unsubscribeRemovals = <String, void Function()>{};
   final _removalSubscriptionsInFlight = <String, Future<void>>{};
@@ -125,14 +133,20 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   final _observedRemovals = <(String, String, String)>{};
   int _notificationGeneration = 0;
   int _subscriptionGeneration = 0;
+  int? _closedSubscriptionGeneration;
+  Timer? _subscriptionRecoveryTimer;
+  int _subscriptionRecoveryAttempt = 0;
+  bool _subscriptionRecoveryInFlight = false;
+  bool _disposed = false;
 
   @override
   CosFollowUpViewState build() {
+    _disposed = false;
     final pubkey = ref.watch(myPubkeyProvider)?.trim().toLowerCase() ?? '';
     final relayScope = ref.watch(relayConfigProvider).baseUrl;
     final authority = ref.watch(cosFollowUpBridgePubkeyProvider);
     final trustedBridgePubkey = authority.value?.trim().toLowerCase() ?? '';
-    ref.onDispose(_disposeSubscriptions);
+    ref.onDispose(_dispose);
     if (pubkey.isEmpty) {
       _pubkey = '';
       _trustedBridgePubkey = '';
@@ -250,12 +264,26 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   Future<void> refresh() async {
-    if (_pubkey.isEmpty || _trustedBridgePubkey.isEmpty) return;
-    state = state.copyWith(loading: state.items.isEmpty, clearLoadError: true);
+    if (_disposed) return;
+    _cancelSubscriptionRecovery();
+    _subscriptionRecoveryAttempt = 0;
     try {
-      _disposeSubscriptions();
-      await _subscribeItems();
+      await _refreshAndReconcile();
+    } catch (error) {
+      state = state.copyWith(loading: false, loadError: '$error');
+    }
+  }
+
+  Future<void> _refreshAndReconcile() async {
+    if (_disposed || _pubkey.isEmpty || _trustedBridgePubkey.isEmpty) return;
+    state = state.copyWith(loading: state.items.isEmpty, clearLoadError: true);
+    _disposeSubscriptions(cancelRecovery: false);
+    final generation = _subscriptionGeneration;
+    try {
+      await _subscribeItems(generation);
+      _ensureSubscriptionGenerationHealthy(generation);
       var events = await _fetchItemHistory();
+      _ensureSubscriptionGenerationHealthy(generation);
       var items = _projectItems(events);
       while (true) {
         final missingChannels = items
@@ -264,9 +292,11 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
             .toSet();
         if (missingChannels.isEmpty) break;
         await Future.wait(missingChannels.map(_subscribeRemovalChannel));
+        _ensureSubscriptionGenerationHealthy(generation);
         // A tombstone can land between the snapshot and its channel
         // subscription. Re-read only after every deletion fence is live.
         events = await _fetchItemHistory();
+        _ensureSubscriptionGenerationHealthy(generation);
         items = _projectItems(events);
       }
       for (final removal in _observedRemovals) {
@@ -287,14 +317,18 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         );
       }
       await _saveNotificationState();
+      _ensureSubscriptionGenerationHealthy(generation);
       state = state.copyWith(
         items: items,
         loading: false,
         clearLoadError: true,
       );
       unawaited(retryPendingNotifications());
-    } catch (error) {
-      state = state.copyWith(loading: false, loadError: '$error');
+    } catch (_) {
+      if (generation == _subscriptionGeneration) {
+        _disposeSubscriptions(cancelRecovery: false);
+      }
+      rethrow;
     }
   }
 
@@ -318,9 +352,9 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         trustedBridgePubkey: _trustedBridgePubkey,
       ).where((item) => !_wasObservedRemoved(item)).toList();
 
-  Future<void> _subscribeItems() async {
+  Future<void> _subscribeItems(int generation) async {
     final session = ref.read(relaySessionProvider.notifier);
-    _unsubscribeItems = await session.subscribeAfterEose(
+    final unsubscribe = await session.subscribeAfterEose(
       NostrFilter(
         kinds: const [EventKind.cosFollowUpItem],
         authors: [_trustedBridgePubkey],
@@ -330,7 +364,14 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         limit: 0,
       ),
       _handleLiveItem,
+      onClosed: (message) =>
+          _handleSubscriptionClosed(generation, 'item', message),
     );
+    if (generation != _subscriptionGeneration) {
+      unsubscribe();
+      return;
+    }
+    _unsubscribeItems = unsubscribe;
   }
 
   Future<void> _subscribeRemovalChannel(String channelId) async {
@@ -366,6 +407,8 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
             limit: 0,
           ),
           _handleRemoval,
+          onClosed: (message) =>
+              _handleSubscriptionClosed(generation, 'tombstone', message),
         );
     if (generation != _subscriptionGeneration) {
       unsubscribe();
@@ -374,8 +417,13 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     _unsubscribeRemovals[channelId] = unsubscribe;
   }
 
-  void _disposeSubscriptions() {
+  void _disposeSubscriptions({bool cancelRecovery = true}) {
+    if (cancelRecovery) {
+      _cancelSubscriptionRecovery();
+      _subscriptionRecoveryAttempt = 0;
+    }
     _subscriptionGeneration++;
+    _closedSubscriptionGeneration = null;
     _unsubscribeItems?.call();
     _unsubscribeItems = null;
     for (final unsubscribe in _unsubscribeRemovals.values) {
@@ -383,6 +431,87 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     }
     _unsubscribeRemovals.clear();
     _removalSubscriptionsInFlight.clear();
+  }
+
+  void _handleSubscriptionClosed(int generation, String stream, String _) {
+    if (_disposed ||
+        generation != _subscriptionGeneration ||
+        _pubkey.isEmpty ||
+        _trustedBridgePubkey.isEmpty) {
+      return;
+    }
+    _closedSubscriptionGeneration = generation;
+    state = state.copyWith(
+      loading: false,
+      loadError:
+          'Live updates interrupted on the $stream stream; reconnecting.',
+    );
+    _scheduleSubscriptionRecovery();
+  }
+
+  void _ensureSubscriptionGenerationHealthy(int generation) {
+    if (generation != _subscriptionGeneration) {
+      throw StateError('Follow-up subscription refresh was superseded.');
+    }
+    if (_closedSubscriptionGeneration == generation) {
+      throw StateError('Relay closed a follow-up live subscription.');
+    }
+  }
+
+  void _scheduleSubscriptionRecovery() {
+    if (_disposed ||
+        _subscriptionRecoveryTimer != null ||
+        _subscriptionRecoveryInFlight ||
+        _pubkey.isEmpty ||
+        _trustedBridgePubkey.isEmpty) {
+      return;
+    }
+    if (_subscriptionRecoveryAttempt >= _subscriptionRecoveryDelays.length) {
+      state = state.copyWith(
+        loading: false,
+        loadError:
+            'Live updates remain unavailable after bounded retries. '
+            'Pull to refresh and try again.',
+      );
+      return;
+    }
+    final delay = _subscriptionRecoveryDelays[_subscriptionRecoveryAttempt];
+    _subscriptionRecoveryAttempt++;
+    _subscriptionRecoveryTimer = Timer(delay, () {
+      _subscriptionRecoveryTimer = null;
+      unawaited(_recoverSubscriptions());
+    });
+  }
+
+  Future<void> _recoverSubscriptions() async {
+    if (_disposed || _pubkey.isEmpty || _trustedBridgePubkey.isEmpty) return;
+    _subscriptionRecoveryInFlight = true;
+    Object? failure;
+    try {
+      await _refreshAndReconcile();
+      _subscriptionRecoveryAttempt = 0;
+    } catch (error) {
+      failure = error;
+      state = state.copyWith(
+        loading: false,
+        loadError:
+            'Live updates interrupted; recovery attempt '
+            '$_subscriptionRecoveryAttempt failed.',
+      );
+    } finally {
+      _subscriptionRecoveryInFlight = false;
+    }
+    if (failure != null) _scheduleSubscriptionRecovery();
+  }
+
+  void _cancelSubscriptionRecovery() {
+    _subscriptionRecoveryTimer?.cancel();
+    _subscriptionRecoveryTimer = null;
+  }
+
+  void _dispose() {
+    _disposed = true;
+    _disposeSubscriptions();
   }
 
   void _handleLiveItem(NostrEvent event) {

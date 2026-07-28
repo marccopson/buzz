@@ -278,6 +278,10 @@ fn cos_follow_up_bridge_pubkey_from_document(
             .bridge_pubkey
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || hex::decode(&authority.bridge_pubkey)
+            .ok()
+            .filter(|bytes| nostr::secp256k1::XOnlyPublicKey::from_slice(bytes.as_slice()).is_ok())
+            .is_none()
     {
         return None;
     }
@@ -499,6 +503,11 @@ mod tests {
             serde_json::json!({"cos_follow_up": {
                 "schema": "mac-workspace/cos-follow-up-authority/v1",
                 "bridge_pubkey": "A".repeat(64),
+                "channel_mapping": "signed-item-h-p-v1"
+            }}),
+            serde_json::json!({"cos_follow_up": {
+                "schema": "mac-workspace/cos-follow-up-authority/v1",
+                "bridge_pubkey": "f".repeat(64),
                 "channel_mapping": "signed-item-h-p-v1"
             }}),
             serde_json::json!({"cos_follow_up": {
