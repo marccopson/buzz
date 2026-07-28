@@ -83,6 +83,7 @@ export default defineConfig({
         "**/animated-avatar.spec.ts",
         "**/cos-running-order.spec.ts",
         "**/cos-my-actions.spec.ts",
+        "**/cos-workspace-sidebar.spec.ts",
         "**/reminders.spec.ts",
         "**/reminder-click-repro.spec.ts",
         "**/virtualization.spec.ts",

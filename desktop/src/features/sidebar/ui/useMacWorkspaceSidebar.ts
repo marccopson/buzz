@@ -13,8 +13,6 @@ export function useMacWorkspaceSidebar() {
   const { goToday } = useAppNavigation();
   return {
     onSelectToday: () => void goToday(),
-    workspaceModules: context.isPending
-      ? undefined
-      : (context.data?.modules ?? []),
+    workspaceModules: context.isPending ? [] : (context.data?.modules ?? []),
   };
 }
