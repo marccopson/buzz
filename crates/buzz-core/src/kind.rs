@@ -527,6 +527,13 @@ pub const KIND_WORKFLOW_APPROVAL_DENIED: u32 = 46012;
 /// Bridge-authored inside a private NIP-29 channel. The assignee is carried in
 /// exactly one `p` tag and clients query this kind with `#p = self`.
 pub const KIND_COS_FOLLOW_UP_ITEM: u32 = 37010;
+/// COS user/workspace context snapshot (parameterized replaceable,
+/// `d = context:<assignee-pubkey>`).
+///
+/// Bridge-authored inside the same private per-identity channel as follow-up
+/// items. Clients query with `#p = self` and use the signed module list to
+/// render the role-aware MAC Workspace front door.
+pub const KIND_COS_USER_CONTEXT: u32 = 37012;
 /// User-authored COS follow-up action command.
 pub const KIND_COS_FOLLOW_UP_COMMAND: u32 = 47010;
 /// Bridge-authored authoritative outcome for a COS follow-up command.
@@ -684,6 +691,7 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_WORKFLOW_APPROVAL_GRANTED,
     KIND_WORKFLOW_APPROVAL_DENIED,
     KIND_COS_FOLLOW_UP_ITEM,
+    KIND_COS_USER_CONTEXT,
     KIND_COS_FOLLOW_UP_COMMAND,
     KIND_COS_FOLLOW_UP_RECEIPT,
     KIND_AUDIT_ENTRY,
@@ -802,6 +810,7 @@ const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 3062
 const _: () = assert!(is_parameterized_replaceable(KIND_THREAD_SUMMARY)); // 39005 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_WINDOW_BOUNDS)); // 39006 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_COS_FOLLOW_UP_ITEM)); // 37010 ∈ 30000–39999
+const _: () = assert!(is_parameterized_replaceable(KIND_COS_USER_CONTEXT)); // 37012 ∈ 30000–39999
 const _: () = assert!(!is_parameterized_replaceable(KIND_COS_FOLLOW_UP_COMMAND));
 const _: () = assert!(!is_parameterized_replaceable(KIND_COS_FOLLOW_UP_RECEIPT));
 

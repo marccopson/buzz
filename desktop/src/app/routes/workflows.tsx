@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { CosWorkspaceModuleGate } from "@/features/cos-user-context/ui/CosWorkspaceModuleGate";
 import { usePreviewFeatureWarning } from "@/shared/features";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
@@ -17,7 +18,9 @@ function WorkflowsRouteComponent() {
   usePreviewFeatureWarning("workflows");
   return (
     <React.Suspense fallback={<ViewLoadingFallback kind="workflows" />}>
-      <WorkflowsRouteScreen selectedWorkflowId={null} />
+      <CosWorkspaceModuleGate module="agents">
+        <WorkflowsRouteScreen selectedWorkflowId={null} />
+      </CosWorkspaceModuleGate>
     </React.Suspense>
   );
 }

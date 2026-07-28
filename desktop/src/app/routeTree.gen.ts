@@ -6,6 +6,7 @@
 
 import { Route as rootRouteImport } from "./routes/root";
 import { Route as workflowsRouteImport } from "./routes/workflows";
+import { Route as todayRouteImport } from "./routes/today";
 import { Route as settingsRouteImport } from "./routes/settings";
 import { Route as runningOrderRouteImport } from "./routes/running-order";
 import { Route as remindersRouteImport } from "./routes/reminders";
@@ -23,6 +24,11 @@ import { Route as channelsDotchannelIdDotpostsDotpostIdRouteImport } from "./rou
 const workflowsRoute = workflowsRouteImport.update({
   id: "/workflows",
   path: "/workflows",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const todayRoute = todayRouteImport.update({
+  id: "/today",
+  path: "/today",
   getParentRoute: () => rootRouteImport,
 } as any);
 const settingsRoute = settingsRouteImport.update({
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   "/reminders": typeof remindersRoute;
   "/running-order": typeof runningOrderRoute;
   "/settings": typeof settingsRoute;
+  "/today": typeof todayRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
@@ -117,6 +124,7 @@ export interface FileRoutesByTo {
   "/reminders": typeof remindersRoute;
   "/running-order": typeof runningOrderRoute;
   "/settings": typeof settingsRoute;
+  "/today": typeof todayRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   "/reminders": typeof remindersRoute;
   "/running-order": typeof runningOrderRoute;
   "/settings": typeof settingsRoute;
+  "/today": typeof todayRoute;
   "/workflows": typeof workflowsRoute;
   "/channels/$channelId": typeof channelsDotchannelIdRoute;
   "/messages/new": typeof messagesDotnewRoute;
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/running-order"
     | "/settings"
+    | "/today"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/running-order"
     | "/settings"
+    | "/today"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | "/reminders"
     | "/running-order"
     | "/settings"
+    | "/today"
     | "/workflows"
     | "/channels/$channelId"
     | "/messages/new"
@@ -201,6 +213,7 @@ export interface RootRouteChildren {
   remindersRoute: typeof remindersRoute;
   runningOrderRoute: typeof runningOrderRoute;
   settingsRoute: typeof settingsRoute;
+  todayRoute: typeof todayRoute;
   workflowsRoute: typeof workflowsRoute;
   channelsDotchannelIdRoute: typeof channelsDotchannelIdRoute;
   messagesDotnewRoute: typeof messagesDotnewRoute;
@@ -216,6 +229,13 @@ declare module "@tanstack/react-router" {
       path: "/workflows";
       fullPath: "/workflows";
       preLoaderRoute: typeof workflowsRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/today": {
+      id: "/today";
+      path: "/today";
+      fullPath: "/today";
+      preLoaderRoute: typeof todayRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/settings": {
@@ -321,6 +341,7 @@ const rootRouteChildren: RootRouteChildren = {
   remindersRoute: remindersRoute,
   runningOrderRoute: runningOrderRoute,
   settingsRoute: settingsRoute,
+  todayRoute: todayRoute,
   workflowsRoute: workflowsRoute,
   channelsDotchannelIdRoute: channelsDotchannelIdRoute,
   messagesDotnewRoute: messagesDotnewRoute,

@@ -8,11 +8,12 @@ use std::collections::{HashMap, HashSet};
 
 use buzz_core::cos_follow_up::{
     build_command_event, build_item_event, build_item_remove_event, build_receipt_event,
-    parse_event, Action, CommandContent, FollowUpEvent, ItemContent, Outcome, ReceiptContent,
-    SCHEMA,
+    build_user_context_event, parse_event, Action, CommandContent, FollowUpEvent, ItemContent,
+    Outcome, ReceiptContent, UserContextContent, SCHEMA,
 };
 use buzz_core::kind::{
     KIND_COS_FOLLOW_UP_COMMAND, KIND_COS_FOLLOW_UP_ITEM, KIND_COS_FOLLOW_UP_RECEIPT,
+    KIND_COS_USER_CONTEXT,
 };
 use nostr::{Event, PublicKey};
 use serde_json::{json, Value};
@@ -344,6 +345,36 @@ fn replayable_item(
     .then_some(latest)
 }
 
+fn replayable_user_context(
+    events: Vec<Event>,
+    owner: PublicKey,
+    channel_id: uuid::Uuid,
+    assignee: PublicKey,
+    content: &UserContextContent,
+) -> Option<Event> {
+    let latest = events
+        .into_iter()
+        .filter(|event| {
+            event.pubkey == owner
+                && matches!(
+                    parse_event(event),
+                    Ok(FollowUpEvent::UserContext(context))
+                        if context.channel_id == channel_id
+                            && context.assignee == assignee
+                )
+        })
+        .max_by(|left, right| {
+            left.created_at
+                .cmp(&right.created_at)
+                .then_with(|| left.id.cmp(&right.id))
+        })?;
+    matches!(
+        parse_event(&latest),
+        Ok(FollowUpEvent::UserContext(context)) if context.content == *content
+    )
+    .then_some(latest)
+}
+
 fn replayable_item_removal(
     events: Vec<Event>,
     owner: PublicKey,
@@ -640,6 +671,68 @@ async fn cmd_item_upsert(
     Ok(())
 }
 
+async fn cmd_context_upsert(
+    client: &BuzzClient,
+    channel: &str,
+    assignee: &str,
+    content: &str,
+) -> Result<(), CliError> {
+    let channel = parse_uuid(channel)?;
+    validate_hex64(assignee)?;
+    let assignee = PublicKey::from_hex(assignee)
+        .map_err(|error| CliError::Usage(format!("invalid assignee pubkey: {error}")))?;
+    let raw = read_or_stdin(content)?;
+    let content: UserContextContent = serde_json::from_str(&raw)
+        .map_err(|error| CliError::Usage(format!("invalid user context JSON: {error}")))?;
+    let builder = build_user_context_event(channel, assignee, &content).map_err(contract_error)?;
+    let owner = client.keys().public_key();
+    let coordinate = format!("context:{}", assignee.to_hex());
+    let existing_raw = client
+        .query(&json!({
+            "kinds": [KIND_COS_USER_CONTEXT],
+            "authors": [owner.to_hex()],
+            "#h": [channel.to_string()],
+            "#d": [coordinate],
+            "#p": [assignee.to_hex()],
+            "limit": 20,
+        }))
+        .await?;
+    if let Some(existing) = replayable_user_context(
+        decode_replay_candidates(&existing_raw, "COS user context")?,
+        owner,
+        channel,
+        assignee,
+        &content,
+    ) {
+        println!(
+            "{}",
+            json!({
+                "schema": CLI_SCHEMA,
+                "accepted": true,
+                "event_id": existing.id.to_hex(),
+                "kind": KIND_COS_USER_CONTEXT,
+                "assignee": assignee.to_hex(),
+                "replayed": true,
+            })
+        );
+        return Ok(());
+    }
+    let event = client.sign_event(builder)?;
+    client.submit_event(event.clone()).await?;
+    println!(
+        "{}",
+        json!({
+            "schema": CLI_SCHEMA,
+            "accepted": true,
+            "event_id": event.id.to_hex(),
+            "kind": KIND_COS_USER_CONTEXT,
+            "assignee": assignee.to_hex(),
+            "replayed": false,
+        })
+    );
+    Ok(())
+}
+
 async fn cmd_item_remove(
     client: &BuzzClient,
     channel: &str,
@@ -833,6 +926,11 @@ pub async fn dispatch(
             assignee,
             content,
         } => cmd_item_upsert(client, &channel, &assignee, &content).await,
+        FollowUpsCmd::ContextUpsert {
+            channel,
+            assignee,
+            content,
+        } => cmd_context_upsert(client, &channel, &assignee, &content).await,
         FollowUpsCmd::ItemRemove {
             channel,
             item,
@@ -885,7 +983,8 @@ pub async fn dispatch(
 mod tests {
     use super::*;
     use buzz_core::cos_follow_up::{
-        DeepLinks, ItemState, ItemTimestamps, Person, QuestionEvidence,
+        AssistantContext, DeepLinks, ItemState, ItemTimestamps, Person, QuestionEvidence,
+        UserContextPerson,
     };
     use nostr::{Keys, Timestamp};
 
@@ -922,6 +1021,32 @@ mod tests {
                 jira: Some("https://jira.example/browse/COS-683".into()),
                 sources: vec![],
             },
+        }
+    }
+
+    fn user_context_content(role: &str) -> UserContextContent {
+        UserContextContent {
+            schema: buzz_core::cos_follow_up::USER_CONTEXT_SCHEMA.into(),
+            tenant_slug: "mac".into(),
+            user: UserContextPerson {
+                id: json!(17),
+                name: "Jake".into(),
+                role: role.into(),
+                role_label: "Leadership".into(),
+            },
+            modules: vec![
+                "today".into(),
+                "my_actions".into(),
+                "messages".into(),
+                "assistant".into(),
+            ],
+            assistant: Some(AssistantContext {
+                key: "mac-assistant".into(),
+                label: "MAC Assistant".into(),
+                execution: "brain-vps".into(),
+                memory_scope: "private-channel".into(),
+            }),
+            generated_at: "2026-07-28T08:00:00Z".into(),
         }
     }
 
@@ -1077,6 +1202,44 @@ mod tests {
             .is_none(),
             "an older equivalent event must not mask a newer projection"
         );
+    }
+
+    #[test]
+    fn context_upsert_retry_reuses_only_identical_owner_projection() {
+        let owner_keys = Keys::generate();
+        let other_keys = Keys::generate();
+        let assignee = Keys::generate().public_key();
+        let channel = uuid::Uuid::new_v4();
+        let content = user_context_content("contractor_admin");
+        let identical = build_user_context_event(channel, assignee, &content)
+            .unwrap()
+            .custom_created_at(Timestamp::from(101))
+            .sign_with_keys(&owner_keys)
+            .unwrap();
+        let foreign = build_user_context_event(channel, assignee, &content)
+            .unwrap()
+            .custom_created_at(Timestamp::from(102))
+            .sign_with_keys(&other_keys)
+            .unwrap();
+
+        let replayed = replayable_user_context(
+            vec![foreign, identical.clone()],
+            owner_keys.public_key(),
+            channel,
+            assignee,
+            &content,
+        )
+        .expect("an identical owner context should be replayed");
+
+        assert_eq!(replayed.id, identical.id);
+        assert!(replayable_user_context(
+            vec![identical],
+            owner_keys.public_key(),
+            channel,
+            assignee,
+            &user_context_content("finance_admin"),
+        )
+        .is_none());
     }
 
     #[test]

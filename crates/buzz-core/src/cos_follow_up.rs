@@ -14,10 +14,56 @@ use uuid::Uuid;
 
 use crate::kind::{
     KIND_COS_FOLLOW_UP_COMMAND, KIND_COS_FOLLOW_UP_ITEM, KIND_COS_FOLLOW_UP_RECEIPT,
+    KIND_COS_USER_CONTEXT,
 };
 
 /// Content schema shared by item, command and receipt events.
 pub const SCHEMA: &str = "mac-workspace/cos-follow-up/v1";
+/// Content schema for the per-user role/module snapshot.
+pub const USER_CONTEXT_SCHEMA: &str = "mac-workspace/cos-user-context/v1";
+
+/// COS user identity shown by the role-aware Workspace shell.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserContextPerson {
+    /// Stable COS user identifier.
+    pub id: serde_json::Value,
+    /// Human-readable display name.
+    pub name: String,
+    /// COS role machine key, or `unknown` when role provisioning is pending.
+    pub role: String,
+    /// Human-readable role label.
+    pub role_label: String,
+}
+
+/// Central staff-facing assistant descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AssistantContext {
+    /// Stable assistant key.
+    pub key: String,
+    /// Human-readable label.
+    pub label: String,
+    /// Central execution location.
+    pub execution: String,
+    /// Required memory isolation boundary.
+    pub memory_scope: String,
+}
+
+/// Content of bridge-authored kind 37012.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserContextContent {
+    /// Contract schema.
+    pub schema: String,
+    /// Tenant selected by the authenticated COS bridge request.
+    pub tenant_slug: String,
+    /// Mapped COS user and role.
+    pub user: UserContextPerson,
+    /// Explicit allowlist of Workspace modules.
+    pub modules: Vec<String>,
+    /// Staff assistant descriptor when the role is permitted to use it.
+    pub assistant: Option<AssistantContext>,
+    /// ISO-8601 generation timestamp supplied by COS.
+    pub generated_at: String,
+}
 
 /// COS follow-up item state. These machine values are deliberately independent
 /// of the friendlier labels rendered by clients.
@@ -252,6 +298,17 @@ pub struct ItemEvent {
     pub content: ItemContent,
 }
 
+/// Parsed kind 37012 event.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UserContextEvent {
+    /// NIP-29 private identity channel.
+    pub channel_id: Uuid,
+    /// Assigned person's Nostr pubkey.
+    pub assignee: PublicKey,
+    /// Parsed user context content.
+    pub content: UserContextContent,
+}
+
 /// Parsed kind 47010 event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandEvent {
@@ -302,6 +359,8 @@ pub struct ItemRemoveEvent {
 pub enum FollowUpEvent {
     /// Kind 37010.
     Item(Box<ItemEvent>),
+    /// Kind 37012.
+    UserContext(Box<UserContextEvent>),
     /// Kind 47010.
     Command(CommandEvent),
     /// Kind 47011.
@@ -353,6 +412,72 @@ fn validate_schema(schema: &str) -> Result<(), ContractError> {
         return Err(ContractError::Invalid(format!(
             "unsupported follow-up schema {schema:?}"
         )));
+    }
+    Ok(())
+}
+
+/// Validate the role/module projection independently of its signed envelope.
+pub fn validate_user_context_content(content: &UserContextContent) -> Result<(), ContractError> {
+    if content.schema != USER_CONTEXT_SCHEMA {
+        return Err(ContractError::Invalid(format!(
+            "unsupported COS user context schema {:?}",
+            content.schema
+        )));
+    }
+    if content.tenant_slug.is_empty()
+        || content.tenant_slug.len() > 63
+        || !content
+            .tenant_slug
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || !valid_scalar(&content.user.id)
+        || content.user.name.trim().is_empty()
+        || content.user.role.trim().is_empty()
+        || content.user.role_label.trim().is_empty()
+        || content.generated_at.trim().is_empty()
+    {
+        return Err(ContractError::Invalid(
+            "COS user context identity is invalid".into(),
+        ));
+    }
+    const ALLOWED_MODULES: [&str; 6] = [
+        "today",
+        "my_actions",
+        "messages",
+        "assistant",
+        "running_order",
+        "agents",
+    ];
+    let mut modules = HashSet::new();
+    if content.modules.iter().any(|module| {
+        !ALLOWED_MODULES.contains(&module.as_str()) || !modules.insert(module.as_str())
+    }) {
+        return Err(ContractError::Invalid(
+            "COS user context modules are invalid".into(),
+        ));
+    }
+    for required in ["today", "my_actions", "messages"] {
+        if !modules.contains(required) {
+            return Err(ContractError::Invalid(format!(
+                "COS user context is missing required module {required}"
+            )));
+        }
+    }
+    if content.assistant.is_some() != modules.contains("assistant") {
+        return Err(ContractError::Invalid(
+            "COS user context assistant must match the assistant module".into(),
+        ));
+    }
+    if let Some(assistant) = &content.assistant {
+        if assistant.key != "mac-assistant"
+            || assistant.label.trim().is_empty()
+            || assistant.execution != "brain-vps"
+            || assistant.memory_scope != "private-channel"
+        {
+            return Err(ContractError::Invalid(
+                "COS user context assistant boundary is invalid".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -515,6 +640,28 @@ pub fn build_item_event(
     Ok(EventBuilder::new(Kind::Custom(KIND_COS_FOLLOW_UP_ITEM as u16), body).tags(tags))
 }
 
+/// Build an unsigned bridge-authored user context snapshot.
+pub fn build_user_context_event(
+    channel_id: Uuid,
+    assignee: PublicKey,
+    content: &UserContextContent,
+) -> Result<EventBuilder, ContractError> {
+    validate_user_context_content(content)?;
+    let channel = channel_id.to_string();
+    let assignee = assignee.to_hex();
+    let coordinate = format!("context:{assignee}");
+    let body = serde_json::to_string(content)?;
+    let tags = [
+        Tag::parse(["h", channel.as_str()])
+            .map_err(|error| ContractError::Invalid(error.to_string()))?,
+        Tag::parse(["d", coordinate.as_str()])
+            .map_err(|error| ContractError::Invalid(error.to_string()))?,
+        Tag::parse(["p", assignee.as_str()])
+            .map_err(|error| ContractError::Invalid(error.to_string()))?,
+    ];
+    Ok(EventBuilder::new(Kind::Custom(KIND_COS_USER_CONTEXT as u16), body).tags(tags))
+}
+
 /// Build an unsigned user action command.
 pub fn build_command_event(
     channel_id: Uuid,
@@ -646,6 +793,25 @@ pub fn parse_event(event: &Event) -> Result<FollowUpEvent, ContractError> {
             Ok(FollowUpEvent::Item(Box::new(ItemEvent {
                 channel_id,
                 item_id,
+                assignee,
+                content,
+            })))
+        }
+        KIND_COS_USER_CONTEXT => {
+            let assignee_hex = exactly_one_tag(event, "p")?;
+            validate_hex_id(&assignee_hex, "user context p tag")?;
+            let d_tag = exactly_one_tag(event, "d")?;
+            if d_tag != format!("context:{assignee_hex}") {
+                return Err(ContractError::Invalid(
+                    "COS user context d tag must bind the assignee".into(),
+                ));
+            }
+            let assignee = PublicKey::from_hex(&assignee_hex)
+                .map_err(|_| ContractError::Invalid("user context p tag is not a pubkey".into()))?;
+            let content: UserContextContent = serde_json::from_str(&event.content)?;
+            validate_user_context_content(&content)?;
+            Ok(FollowUpEvent::UserContext(Box::new(UserContextEvent {
+                channel_id,
                 assignee,
                 content,
             })))

@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { CosWorkspaceModuleGate } from "@/features/cos-user-context/ui/CosWorkspaceModuleGate";
 import {
   parseProfilePanelTab,
   parseProfilePanelView,
@@ -45,7 +46,9 @@ function PulseRouteComponent() {
     <React.Suspense
       fallback={<ViewLoadingFallback includeHeader kind="pulse" />}
     >
-      <PulseScreen />
+      <CosWorkspaceModuleGate module="agents">
+        <PulseScreen />
+      </CosWorkspaceModuleGate>
     </React.Suspense>
   );
 }

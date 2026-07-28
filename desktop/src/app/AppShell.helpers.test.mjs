@@ -37,3 +37,10 @@ test("deriveShellRoute selects the COS running order", () => {
     selectedView: "running-order",
   });
 });
+
+test("deriveShellRoute selects the MAC Today front door", () => {
+  assert.deepEqual(deriveShellRoute("/today"), {
+    selectedChannelId: null,
+    selectedView: "today",
+  });
+});

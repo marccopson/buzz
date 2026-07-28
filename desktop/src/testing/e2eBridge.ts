@@ -27,6 +27,7 @@ import {
   KIND_AGENT_OBSERVER_FRAME,
   KIND_CHANNEL_THREAD_SUMMARY,
   KIND_CHANNEL_WINDOW_BOUNDS,
+  KIND_COS_USER_CONTEXT,
   KIND_DM_VISIBILITY,
   KIND_EVENT_REMINDER,
   KIND_GIT_ISSUE,
@@ -296,6 +297,10 @@ type E2eConfig = {
      * Undefined keeps the established trusted mock identity default; null
      * explicitly disables the feature. */
     cosFollowUpBridgePubkey?: string | null;
+    /** Trusted Workspace context fixture. Undefined defaults to admin. */
+    cosUserContext?: "admin" | "staff" | null;
+    /** Delay returning the trusted Workspace context fixture. */
+    cosUserContextDelayMs?: number;
     /** Delay registration of trusted kind-5 live subscriptions so the COS
      * history→subscription handoff can be exercised deterministically. */
     cosFollowUpRemovalSubscribeDelayMs?: number;
@@ -894,6 +899,56 @@ function createMockRelayMembershipEvent(): RelayEvent {
     "",
     mockRelayMembers.map((member) => ["member", member.pubkey, member.role]),
     "f".repeat(64),
+  );
+}
+
+function createMockCosUserContextEvent(
+  config: E2eConfig | undefined,
+): RelayEvent | null {
+  const access = config?.mock?.cosUserContext;
+  if (access === null) return null;
+
+  const assigneePubkey = getMockMemberPubkey(config).toLowerCase();
+  const authorityPubkey =
+    config?.mock?.cosFollowUpBridgePubkey === undefined
+      ? DEFAULT_MOCK_IDENTITY.pubkey
+      : config.mock.cosFollowUpBridgePubkey;
+  if (!authorityPubkey) return null;
+
+  const isAdmin = access === undefined || access === "admin";
+  const modules = [
+    "today",
+    "my_actions",
+    "messages",
+    "assistant",
+    ...(isAdmin ? ["running_order", "agents"] : []),
+  ];
+  return createMockEvent(
+    KIND_COS_USER_CONTEXT,
+    JSON.stringify({
+      schema: "mac-workspace/cos-user-context/v1",
+      tenant_slug: "mac-surfacing",
+      user: {
+        id: isAdmin ? 1 : 2,
+        name: isAdmin ? "MAC Workspace Admin" : "MAC Staff Member",
+        role: isAdmin ? "contractor_admin" : "staff",
+        role_label: isAdmin ? "Leadership" : "Staff",
+      },
+      modules,
+      assistant: {
+        key: "mac-assistant",
+        label: "MAC Assistant",
+        execution: "brain-vps",
+        memory_scope: "private-channel",
+      },
+      generated_at: new Date().toISOString(),
+    }),
+    [
+      ["h", STARTER_GENERAL_CHANNEL_ID],
+      ["d", `context:${assigneePubkey}`],
+      ["p", assigneePubkey],
+    ],
+    authorityPubkey,
   );
 }
 
@@ -8891,6 +8946,46 @@ function sendToMockSocket(args: {
         sendWsText(socket.handler, ["EVENT", subId, statusEvent]);
       }
       sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
+    if (filter.kinds?.includes(KIND_COS_USER_CONTEXT)) {
+      const contextEvent = createMockCosUserContextEvent(getConfig());
+      const requestedAuthors = new Set(
+        (filter.authors ?? []).map((author) => author.toLowerCase()),
+      );
+      const requestedCoordinates = new Set(filter["#d"] ?? []);
+      const requestedAssignees = new Set(
+        (filter["#p"] ?? []).map((pubkey) => pubkey.toLowerCase()),
+      );
+      const matches =
+        contextEvent !== null &&
+        (requestedAuthors.size === 0 ||
+          requestedAuthors.has(contextEvent.pubkey.toLowerCase())) &&
+        contextEvent.tags.some(
+          (tag) =>
+            tag[0] === "d" &&
+            (requestedCoordinates.size === 0 ||
+              requestedCoordinates.has(tag[1])),
+        ) &&
+        contextEvent.tags.some(
+          (tag) =>
+            tag[0] === "p" &&
+            (requestedAssignees.size === 0 ||
+              requestedAssignees.has(tag[1].toLowerCase())),
+        );
+      const respond = () => {
+        if (matches) {
+          sendWsText(socket.handler, ["EVENT", subId, contextEvent]);
+        }
+        sendWsText(socket.handler, ["EOSE", subId]);
+      };
+      const delayMs = getConfig()?.mock?.cosUserContextDelayMs ?? 0;
+      if (delayMs > 0) {
+        window.setTimeout(respond, delayMs);
+      } else {
+        respond();
+      }
       return;
     }
 
