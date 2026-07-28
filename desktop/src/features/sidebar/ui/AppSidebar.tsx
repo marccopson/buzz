@@ -49,6 +49,7 @@ import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
 import { SidebarRelayConnectionCard } from "@/features/sidebar/ui/SidebarRelayConnectionCard";
 import type { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
+import { useMacWorkspaceSidebar } from "@/features/sidebar/ui/useMacWorkspaceSidebar";
 import {
   SidebarLoadingContent,
   useSidebarLoadingShape,
@@ -236,6 +237,7 @@ export function AppSidebar({
   onStarChannel,
   onUnstarChannel,
 }: AppSidebarProps) {
+  const macWorkspace = useMacWorkspaceSidebar();
   const activeWorkingByChannelId = useActiveWorkingChannelsById();
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
@@ -613,8 +615,10 @@ export function AppSidebar({
                 onSelectProjects={onSelectProjects}
                 onSelectPulse={onSelectPulse}
                 onSelectRunningOrder={onSelectRunningOrder}
+                onSelectToday={macWorkspace.onSelectToday}
                 onSelectWorkflows={onSelectWorkflows}
                 selectedView={selectedView}
+                workspaceModules={macWorkspace.workspaceModules}
               />
 
               {isLoading ? (

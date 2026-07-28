@@ -5,6 +5,7 @@ import {
   Inbox,
   ListChecks,
   ListTodo,
+  Sun,
   Zap,
 } from "lucide-react";
 
@@ -22,6 +23,7 @@ import { SidebarMenuLabel } from "@/shared/ui/sidebar-menu-label";
 
 type SidebarSelectedView =
   | "home"
+  | "today"
   | "channel"
   | "messages"
   | "agents"
@@ -53,8 +55,10 @@ type AppSidebarPrimaryMenuProps = {
   onSelectProjects: () => void;
   onSelectPulse: () => void;
   onSelectRunningOrder: () => void;
+  onSelectToday: () => void;
   onSelectWorkflows: () => void;
   selectedView: SidebarSelectedView;
+  workspaceModules?: readonly string[] | null;
 };
 
 export function AppSidebarPinnedHeader({
@@ -100,9 +104,18 @@ export function AppSidebarPrimaryMenu({
   onSelectProjects,
   onSelectPulse,
   onSelectRunningOrder,
+  onSelectToday,
   onSelectWorkflows,
   selectedView,
+  workspaceModules,
 }: AppSidebarPrimaryMenuProps) {
+  const hasProjectedContext = Array.isArray(workspaceModules);
+  const canUseAgents =
+    !hasProjectedContext || workspaceModules.includes("agents");
+  const canUseRunningOrder =
+    !hasProjectedContext || workspaceModules.includes("running_order");
+  const canUseTechnicalTools = canUseAgents || canUseRunningOrder;
+
   return (
     <SidebarHeader
       className="cursor-default select-none px-2 pb-0 pt-0"
@@ -110,6 +123,18 @@ export function AppSidebarPrimaryMenu({
       data-testid="sidebar-primary-menu"
     >
       <SidebarMenu className="pb-2">
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-today-view"
+            isActive={selectedView === "today"}
+            onClick={onSelectToday}
+            tooltip="Today"
+            type="button"
+          >
+            <Sun className="h-4 w-4" />
+            <SidebarMenuLabel>Today</SidebarMenuLabel>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton
             isActive={selectedView === "home"}
@@ -141,72 +166,82 @@ export function AppSidebarPrimaryMenu({
             <SidebarMenuLabel>My Actions</SidebarMenuLabel>
           </SidebarMenuButton>
         </SidebarMenuItem>
-        <FeatureGate feature="pulse">
+        {canUseTechnicalTools ? (
+          <FeatureGate feature="pulse">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                data-testid="open-pulse-view"
+                isActive={selectedView === "pulse"}
+                onClick={onSelectPulse}
+                tooltip="Pulse"
+                type="button"
+              >
+                <Activity className="h-4 w-4" />
+                <SidebarMenuLabel>Pulse</SidebarMenuLabel>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </FeatureGate>
+        ) : null}
+        {canUseTechnicalTools ? (
+          <FeatureGate feature="projects">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                data-testid="open-projects-view"
+                isActive={selectedView === "projects"}
+                onClick={onSelectProjects}
+                tooltip="Projects"
+                type="button"
+              >
+                <FolderGit2 className="h-4 w-4" />
+                <SidebarMenuLabel>Projects</SidebarMenuLabel>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </FeatureGate>
+        ) : null}
+        {canUseRunningOrder ? (
           <SidebarMenuItem>
             <SidebarMenuButton
-              data-testid="open-pulse-view"
-              isActive={selectedView === "pulse"}
-              onClick={onSelectPulse}
-              tooltip="Pulse"
+              data-testid="open-running-order-view"
+              isActive={selectedView === "running-order"}
+              onClick={onSelectRunningOrder}
+              tooltip="COS Running Order"
               type="button"
             >
-              <Activity className="h-4 w-4" />
-              <SidebarMenuLabel>Pulse</SidebarMenuLabel>
+              <ListChecks className="h-4 w-4" />
+              <SidebarMenuLabel>COS Running Order</SidebarMenuLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
-        </FeatureGate>
-        <FeatureGate feature="projects">
+        ) : null}
+        {canUseAgents ? (
           <SidebarMenuItem>
             <SidebarMenuButton
-              data-testid="open-projects-view"
-              isActive={selectedView === "projects"}
-              onClick={onSelectProjects}
-              tooltip="Projects"
+              data-testid="open-agents-view"
+              isActive={selectedView === "agents"}
+              onClick={onSelectAgents}
+              tooltip="Agents"
               type="button"
             >
-              <FolderGit2 className="h-4 w-4" />
-              <SidebarMenuLabel>Projects</SidebarMenuLabel>
+              <Bot className="h-4 w-4" />
+              <SidebarMenuLabel>Agents</SidebarMenuLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
-        </FeatureGate>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            data-testid="open-running-order-view"
-            isActive={selectedView === "running-order"}
-            onClick={onSelectRunningOrder}
-            tooltip="COS Running Order"
-            type="button"
-          >
-            <ListChecks className="h-4 w-4" />
-            <SidebarMenuLabel>COS Running Order</SidebarMenuLabel>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            data-testid="open-agents-view"
-            isActive={selectedView === "agents"}
-            onClick={onSelectAgents}
-            tooltip="Agents"
-            type="button"
-          >
-            <Bot className="h-4 w-4" />
-            <SidebarMenuLabel>Agents</SidebarMenuLabel>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
-        <FeatureGate feature="workflows">
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              data-testid="open-workflows-view"
-              isActive={selectedView === "workflows"}
-              onClick={onSelectWorkflows}
-              tooltip="Workflows"
-              type="button"
-            >
-              <Zap className="h-4 w-4" />
-              <SidebarMenuLabel>Workflows</SidebarMenuLabel>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </FeatureGate>
+        ) : null}
+        {canUseTechnicalTools ? (
+          <FeatureGate feature="workflows">
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                data-testid="open-workflows-view"
+                isActive={selectedView === "workflows"}
+                onClick={onSelectWorkflows}
+                tooltip="Workflows"
+                type="button"
+              >
+                <Zap className="h-4 w-4" />
+                <SidebarMenuLabel>Workflows</SidebarMenuLabel>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </FeatureGate>
+        ) : null}
       </SidebarMenu>
     </SidebarHeader>
   );

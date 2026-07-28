@@ -1,11 +1,11 @@
 use buzz_core::cos_follow_up::{
     build_command_event, build_item_event, build_item_remove_event, build_receipt_event,
-    parse_event, Action, CommandContent, FollowUpEvent, ItemContent, ItemState, Outcome,
-    ReceiptContent, SCHEMA,
+    build_user_context_event, parse_event, Action, CommandContent, FollowUpEvent, ItemContent,
+    ItemState, Outcome, ReceiptContent, UserContextContent, SCHEMA, USER_CONTEXT_SCHEMA,
 };
 use buzz_core::kind::{
     is_parameterized_replaceable, KIND_COS_FOLLOW_UP_COMMAND, KIND_COS_FOLLOW_UP_ITEM,
-    KIND_COS_FOLLOW_UP_RECEIPT,
+    KIND_COS_FOLLOW_UP_RECEIPT, KIND_COS_USER_CONTEXT,
 };
 use nostr::{EventBuilder, Keys, Kind, Tag};
 use uuid::Uuid;
@@ -49,11 +49,89 @@ fn item_content() -> ItemContent {
 #[test]
 fn kinds_are_registered_in_the_required_ranges() {
     assert_eq!(KIND_COS_FOLLOW_UP_ITEM, 37010);
+    assert_eq!(KIND_COS_USER_CONTEXT, 37012);
     assert_eq!(KIND_COS_FOLLOW_UP_COMMAND, 47010);
     assert_eq!(KIND_COS_FOLLOW_UP_RECEIPT, 47011);
     assert!(is_parameterized_replaceable(KIND_COS_FOLLOW_UP_ITEM));
+    assert!(is_parameterized_replaceable(KIND_COS_USER_CONTEXT));
     assert!(!is_parameterized_replaceable(KIND_COS_FOLLOW_UP_COMMAND));
     assert!(!is_parameterized_replaceable(KIND_COS_FOLLOW_UP_RECEIPT));
+}
+
+#[test]
+fn user_context_builder_and_parser_pin_private_identity_and_modules() {
+    let channel = Uuid::new_v4();
+    let assignee = Keys::generate().public_key();
+    let content: UserContextContent = serde_json::from_value(serde_json::json!({
+        "schema": USER_CONTEXT_SCHEMA,
+        "tenant_slug": "mac-surfacing",
+        "user": {
+            "id": 7,
+            "name": "Matthew Ward",
+            "role": "finance_admin",
+            "role_label": "Finance"
+        },
+        "modules": ["today", "my_actions", "messages", "assistant"],
+        "assistant": {
+            "key": "mac-assistant",
+            "label": "MAC Assistant",
+            "execution": "brain-vps",
+            "memory_scope": "private-channel"
+        },
+        "generated_at": "2026-07-28T19:00:00Z"
+    }))
+    .unwrap();
+    let event = build_user_context_event(channel, assignee, &content)
+        .unwrap()
+        .sign_with_keys(&Keys::generate())
+        .unwrap();
+    let d_tag = event
+        .tags
+        .iter()
+        .find(|tag| tag.as_slice().first().map(String::as_str) == Some("d"))
+        .expect("user context must carry a replacement coordinate");
+    let expected_coordinate = format!("context:{}", assignee.to_hex());
+    assert_eq!(
+        d_tag.as_slice().get(1).map(String::as_str),
+        Some(expected_coordinate.as_str())
+    );
+
+    match parse_event(&event).unwrap() {
+        FollowUpEvent::UserContext(parsed) => {
+            assert_eq!(parsed.channel_id, channel);
+            assert_eq!(parsed.assignee, assignee);
+            assert_eq!(parsed.content.user.role, "finance_admin");
+            assert!(!parsed.content.modules.contains(&"agents".to_string()));
+        }
+        other => panic!("expected user context, got {other:?}"),
+    }
+}
+
+#[test]
+fn user_context_rejects_privileged_or_unknown_modules() {
+    let assignee = Keys::generate().public_key();
+    let content: UserContextContent = serde_json::from_value(serde_json::json!({
+        "schema": USER_CONTEXT_SCHEMA,
+        "tenant_slug": "mac-surfacing",
+        "user": {
+            "id": 7,
+            "name": "Stephen Evans",
+            "role": "unknown",
+            "role_label": "Access pending"
+        },
+        "modules": ["today", "my_actions", "messages", "secrets"],
+        "assistant": null,
+        "generated_at": "2026-07-28T19:00:00Z"
+    }))
+    .unwrap();
+
+    let error = build_user_context_event(Uuid::new_v4(), assignee, &content)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("modules are invalid"),
+        "unexpected error: {error}"
+    );
 }
 
 #[test]

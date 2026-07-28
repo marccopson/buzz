@@ -979,6 +979,19 @@ pub enum FollowUpsCmd {
         #[arg(long)]
         content: String,
     },
+    /// Publish or replace the mapped user's role/module context snapshot
+    #[command(name = "context-upsert")]
+    ContextUpsert {
+        /// Private per-identity channel UUID
+        #[arg(long)]
+        channel: String,
+        /// Assigned Workspace identity pubkey
+        #[arg(long)]
+        assignee: String,
+        /// Complete v1 context JSON; use `-` to read stdin
+        #[arg(long)]
+        content: String,
+    },
     /// Tombstone an item that has left the authoritative COS projection
     #[command(name = "item-remove")]
     ItemRemove {

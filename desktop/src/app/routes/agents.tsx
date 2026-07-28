@@ -8,6 +8,7 @@ import {
   type ProfilePanelView,
 } from "@/features/profile/ui/UserProfilePanelUtils";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
+import { CosWorkspaceModuleGate } from "@/features/cos-user-context/ui/CosWorkspaceModuleGate";
 
 type AgentsRouteSearch = {
   profile?: string;
@@ -44,7 +45,9 @@ export const Route = createFileRoute("/agents")({
 function AgentsRouteComponent() {
   return (
     <React.Suspense fallback={<ViewLoadingFallback kind="agents" />}>
-      <AgentsScreen />
+      <CosWorkspaceModuleGate module="agents">
+        <AgentsScreen />
+      </CosWorkspaceModuleGate>
     </React.Suspense>
   );
 }

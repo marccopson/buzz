@@ -57,6 +57,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goToday = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/today",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goAgents = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -328,6 +339,7 @@ export function useAppNavigation() {
     goPulse,
     goRunningOrder,
     goSettings,
+    goToday,
     goWorkflow,
     goWorkflows,
     openSearchHit,
