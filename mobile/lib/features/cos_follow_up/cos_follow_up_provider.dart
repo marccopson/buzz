@@ -113,7 +113,8 @@ class _PendingCosFollowUpNotification {
 
 class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   void Function()? _unsubscribeItems;
-  void Function()? _unsubscribeRemovals;
+  final _unsubscribeRemovals = <String, void Function()>{};
+  final _removalSubscriptionsInFlight = <String, Future<void>>{};
   String _pubkey = '';
   String _relayScope = '';
   String _trustedBridgePubkey = '';
@@ -121,7 +122,9 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   final _pendingNotifications = <String, _PendingCosFollowUpNotification>{};
   final _deliveryInFlight = <String>{};
   final _attempts = <String, _ActionAttempt>{};
+  final _observedRemovals = <(String, String, String)>{};
   int _notificationGeneration = 0;
+  int _subscriptionGeneration = 0;
 
   @override
   CosFollowUpViewState build() {
@@ -161,6 +164,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         ..clear()
         ..addAll(_loadPendingNotifications());
       _deliveryInFlight.clear();
+      _observedRemovals.clear();
       Future.microtask(refresh);
     }
     return const CosFollowUpViewState();
@@ -249,23 +253,26 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     if (_pubkey.isEmpty || _trustedBridgePubkey.isEmpty) return;
     state = state.copyWith(loading: state.items.isEmpty, clearLoadError: true);
     try {
-      final events = await ref
-          .read(relaySessionProvider.notifier)
-          .fetchHistory(
-            NostrFilter(
-              kinds: const [EventKind.cosFollowUpItem],
-              authors: [_trustedBridgePubkey],
-              tags: {
-                '#p': [_pubkey],
-              },
-              limit: 500,
-            ),
-          );
-      final items = projectLatestCosFollowUpItems(
-        events,
-        _pubkey,
-        trustedBridgePubkey: _trustedBridgePubkey,
-      );
+      _disposeSubscriptions();
+      await _subscribeItems();
+      var events = await _fetchItemHistory();
+      var items = _projectItems(events);
+      while (true) {
+        final missingChannels = items
+            .map((item) => item.channelId)
+            .where((channelId) => !_unsubscribeRemovals.containsKey(channelId))
+            .toSet();
+        if (missingChannels.isEmpty) break;
+        await Future.wait(missingChannels.map(_subscribeRemovalChannel));
+        // A tombstone can land between the snapshot and its channel
+        // subscription. Re-read only after every deletion fence is live.
+        events = await _fetchItemHistory();
+        items = _projectItems(events);
+      }
+      for (final removal in _observedRemovals) {
+        _seen.remove(removal.$2);
+        _pendingNotifications.remove(removal.$2);
+      }
       for (final item in items) {
         final pending = _pendingNotifications[item.id];
         if (item.state != CosFollowUpState.confirmed && pending != null) {
@@ -285,17 +292,35 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         loading: false,
         clearLoadError: true,
       );
-      await _subscribe(items.map((item) => item.channelId).toSet());
       unawaited(retryPendingNotifications());
     } catch (error) {
       state = state.copyWith(loading: false, loadError: '$error');
     }
   }
 
-  Future<void> _subscribe(Set<String> channelIds) async {
-    _disposeSubscriptions();
+  Future<List<NostrEvent>> _fetchItemHistory() => ref
+      .read(relaySessionProvider.notifier)
+      .fetchHistory(
+        NostrFilter(
+          kinds: const [EventKind.cosFollowUpItem],
+          authors: [_trustedBridgePubkey],
+          tags: {
+            '#p': [_pubkey],
+          },
+          limit: 500,
+        ),
+      );
+
+  List<CosFollowUpItem> _projectItems(List<NostrEvent> events) =>
+      projectLatestCosFollowUpItems(
+        events,
+        _pubkey,
+        trustedBridgePubkey: _trustedBridgePubkey,
+      ).where((item) => !_wasObservedRemoved(item)).toList();
+
+  Future<void> _subscribeItems() async {
     final session = ref.read(relaySessionProvider.notifier);
-    _unsubscribeItems = await session.subscribe(
+    _unsubscribeItems = await session.subscribeAfterEose(
       NostrFilter(
         kinds: const [EventKind.cosFollowUpItem],
         authors: [_trustedBridgePubkey],
@@ -306,24 +331,58 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
       ),
       _handleLiveItem,
     );
-    if (channelIds.isNotEmpty) {
-      _unsubscribeRemovals = await session.subscribe(
-        NostrFilter(
-          kinds: const [EventKind.deletion],
-          authors: [_trustedBridgePubkey],
-          tags: {'#h': channelIds.toList()},
-          limit: 0,
-        ),
-        _handleRemoval,
-      );
+  }
+
+  Future<void> _subscribeRemovalChannel(String channelId) async {
+    if (_unsubscribeRemovals.containsKey(channelId)) return;
+    final existing = _removalSubscriptionsInFlight[channelId];
+    if (existing != null) return existing;
+
+    final generation = _subscriptionGeneration;
+    final work = _startRemovalSubscription(channelId, generation);
+    _removalSubscriptionsInFlight[channelId] = work;
+    try {
+      await work;
+    } finally {
+      if (identical(_removalSubscriptionsInFlight[channelId], work)) {
+        _removalSubscriptionsInFlight.remove(channelId);
+      }
     }
   }
 
+  Future<void> _startRemovalSubscription(
+    String channelId,
+    int generation,
+  ) async {
+    final unsubscribe = await ref
+        .read(relaySessionProvider.notifier)
+        .subscribeAfterEose(
+          NostrFilter(
+            kinds: const [EventKind.deletion],
+            authors: [_trustedBridgePubkey],
+            tags: {
+              '#h': [channelId],
+            },
+            limit: 0,
+          ),
+          _handleRemoval,
+        );
+    if (generation != _subscriptionGeneration) {
+      unsubscribe();
+      return;
+    }
+    _unsubscribeRemovals[channelId] = unsubscribe;
+  }
+
   void _disposeSubscriptions() {
+    _subscriptionGeneration++;
     _unsubscribeItems?.call();
     _unsubscribeItems = null;
-    _unsubscribeRemovals?.call();
-    _unsubscribeRemovals = null;
+    for (final unsubscribe in _unsubscribeRemovals.values) {
+      unsubscribe();
+    }
+    _unsubscribeRemovals.clear();
+    _removalSubscriptionsInFlight.clear();
   }
 
   void _handleLiveItem(NostrEvent event) {
@@ -334,15 +393,41 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     } on FormatException {
       return;
     }
-    final existingChannels = state.items
-        .map((value) => value.channelId)
-        .toSet();
+    if (!_unsubscribeRemovals.containsKey(item.channelId)) {
+      unawaited(_handleLiveItemAfterRemovalFence(item));
+      return;
+    }
+    _applyLiveItem(event, item);
+  }
+
+  Future<void> _handleLiveItemAfterRemovalFence(CosFollowUpItem item) async {
+    final generation = _subscriptionGeneration;
+    await _subscribeRemovalChannel(item.channelId);
+    if (generation != _subscriptionGeneration) return;
+
+    // The item may have been deleted while its channel subscription was being
+    // established. Reconcile against durable relay history before projecting
+    // or notifying.
+    final events = await _fetchItemHistory();
+    if (generation != _subscriptionGeneration) return;
+    final retained = _projectItems(
+      events,
+    ).where((candidate) => candidate.id == item.id).firstOrNull;
+    if (retained == null) return;
+    final retainedEvent = events
+        .where((candidate) => candidate.id == retained.eventId)
+        .firstOrNull;
+    if (retainedEvent == null) return;
+    _applyLiveItem(retainedEvent, retained);
+  }
+
+  void _applyLiveItem(NostrEvent event, CosFollowUpItem item) {
     CosFollowUpItem? retained;
     final projectedItems = projectLatestCosFollowUpItems(
       [for (final current in state.items) _eventProjection(current), event],
       _pubkey,
       trustedBridgePubkey: _trustedBridgePubkey,
-    );
+    ).where((projected) => !_wasObservedRemoved(projected)).toList();
     for (final projected in projectedItems) {
       if (projected.id == item.id) {
         retained = projected;
@@ -378,9 +463,6 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         state: retained.state.wireValue,
       );
       unawaited(_saveSeen());
-    }
-    if (!existingChannels.contains(retained.channelId)) {
-      unawaited(_subscribe({...existingChannels, retained.channelId}));
     }
   }
 
@@ -437,6 +519,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     final itemId = _exactTag(event, 'item');
     final target = _exactTag(event, 'e');
     if (channel == null || itemId == null || target == null) return;
+    _observedRemovals.add((channel, itemId, target));
     final removedCurrentProjection = state.items.any(
       (item) =>
           item.channelId == channel &&
@@ -458,6 +541,9 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     _pendingNotifications.remove(itemId);
     unawaited(_saveNotificationState());
   }
+
+  bool _wasObservedRemoved(CosFollowUpItem item) =>
+      _observedRemovals.contains((item.channelId, item.id, item.eventId));
 
   Future<void> _persistAndQueuePendingDelivery(String itemId) async {
     final generation = _notificationGeneration;

@@ -296,6 +296,9 @@ type E2eConfig = {
      * Undefined keeps the established trusted mock identity default; null
      * explicitly disables the feature. */
     cosFollowUpBridgePubkey?: string | null;
+    /** Delay registration of trusted kind-5 live subscriptions so the COS
+     * history→subscription handoff can be exercised deterministically. */
+    cosFollowUpRemovalSubscribeDelayMs?: number;
     oaOwnerIsMe?: boolean;
     /** Whether the mock relay advertises NIP-43 membership support. Defaults to false. */
     relayRequiresMembership?: boolean;
@@ -8829,13 +8832,23 @@ function sendToMockSocket(args: {
         sendWsText(socket.handler, ["CLOSED", subId, "rate-limited"]);
         return;
       }
-      socket.subscriptions.set(subId, {
-        channelId: onlyChannelId ?? GLOBAL_MOCK_SUBSCRIPTION,
-        kinds: kinds.size > 0 ? [...kinds] : null,
-        authors: [...authors],
-        ownerPubkeys: [...ownerPubkeys],
-      });
-      sendWsText(socket.handler, ["EOSE", subId]);
+      const registerSubscription = () => {
+        socket.subscriptions.set(subId, {
+          channelId: onlyChannelId ?? GLOBAL_MOCK_SUBSCRIPTION,
+          kinds: kinds.size > 0 ? [...kinds] : null,
+          authors: [...authors],
+          ownerPubkeys: [...ownerPubkeys],
+        });
+        sendWsText(socket.handler, ["EOSE", subId]);
+      };
+      const removalDelayMs = kinds.has(KIND_DELETION)
+        ? (getConfig()?.mock?.cosFollowUpRemovalSubscribeDelayMs ?? 0)
+        : 0;
+      if (removalDelayMs > 0) {
+        window.setTimeout(registerSubscription, removalDelayMs);
+      } else {
+        registerSubscription();
+      }
       return;
     }
 

@@ -101,8 +101,13 @@ async function notificationBodies(page: Page, prefix: string) {
 }
 
 test.describe("COS My Actions", () => {
-  test.beforeEach(async ({ page }) => {
-    await installMockBridge(page);
+  test.beforeEach(async ({ page }, testInfo) => {
+    await installMockBridge(
+      page,
+      testInfo.title.includes("item-to-removal subscription handoff")
+        ? { cosFollowUpRemovalSubscribeDelayMs: 500 }
+        : undefined,
+    );
   });
 
   test("an already-open queue applies live upserts and removals immediately", async ({
@@ -189,6 +194,42 @@ test.describe("COS My Actions", () => {
       },
       { itemEventId: ITEM_EVENT_ID, itemId: ITEM_ID },
     );
+
+    await expect(card).toHaveCount(0);
+  });
+
+  test("does not miss a tombstone during the item-to-removal subscription handoff", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await waitForFollowUpItemSubscription(page);
+    await page.getByTestId("open-my-actions-view").click();
+
+    await emitFollowUpItem(page, {
+      eventId: ITEM_EVENT_ID,
+      state: "needs-answer",
+      title: "Must not survive its tombstone",
+      version: 1,
+    });
+    const card = page.getByTestId(`my-actions-item-${ITEM_ID}`);
+    await expect(card).toContainText("Must not survive its tombstone");
+
+    await page.evaluate(
+      ({ eventId, itemId }) => {
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName: "general",
+          content: "",
+          extraTags: [
+            ["item", itemId],
+            ["e", eventId],
+          ],
+          id: "5".repeat(64),
+          kind: 5,
+        });
+      },
+      { eventId: ITEM_EVENT_ID, itemId: ITEM_ID },
+    );
+    await page.waitForTimeout(750);
 
     await expect(card).toHaveCount(0);
   });

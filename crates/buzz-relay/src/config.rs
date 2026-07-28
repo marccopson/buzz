@@ -172,7 +172,8 @@ pub struct Config {
     /// Exact bridge identity trusted to author Contractor OS follow-up state.
     ///
     /// Unset disables the feature and all COS follow-up ingest fails closed.
-    /// Set via `BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY` as lowercase 64-hex.
+    /// Set via `BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY` as a valid lowercase
+    /// 64-hex Nostr x-only public key.
     pub cos_follow_up_bridge_pubkey: Option<String>,
 
     /// Allow NIP-OA owner attestation for relay membership.
@@ -594,9 +595,12 @@ impl Config {
                     || !raw
                         .bytes()
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    || nostr::PublicKey::from_hex(&raw)
+                        .and_then(|pubkey| pubkey.xonly())
+                        .is_err()
                 {
                     return Err(ConfigError::InvalidValue(
-                            "BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY must be exactly 64 lowercase hex characters"
+                            "BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY must be a valid Nostr x-only public key encoded as exactly 64 lowercase hex characters"
                                 .to_string(),
                         ));
                 }
@@ -1216,13 +1220,14 @@ mod tests {
             None
         );
 
-        std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", "a".repeat(64));
+        let valid_pubkey = "e5ebc6cdb579be112e336cc319b5989b4bb6af11786ea90dbe52b5f08d741b34";
+        std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", valid_pubkey);
         assert_eq!(
             Config::from_env()
                 .expect("valid authority")
                 .cos_follow_up_bridge_pubkey
                 .as_deref(),
-            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            Some(valid_pubkey)
         );
 
         for invalid in [
@@ -1230,6 +1235,7 @@ mod tests {
             "abc".to_string(),
             "A".repeat(64),
             "g".repeat(64),
+            "f".repeat(64),
             format!(" {}", "a".repeat(64)),
         ] {
             std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", &invalid);

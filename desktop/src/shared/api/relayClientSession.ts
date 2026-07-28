@@ -51,6 +51,7 @@ import {
   shouldScheduleReconnect,
 } from "@/shared/api/relayReconnectPolicy";
 import { RelayStallWatchdog } from "@/shared/api/relayStallWatchdog";
+import { createLiveSubscriptionReady } from "@/shared/api/relaySubscriptionReady";
 import { closeWebSocket } from "@/shared/api/relayWebSocketClose";
 import { buildThreadReferenceTags } from "@/features/messages/lib/threading";
 const RECONNECT_BASE_DELAY_MS = 1_000,
@@ -445,8 +446,9 @@ export class RelayClient {
   async subscribeLive(
     filter: RelaySubscriptionFilter,
     onEvent: (event: RelayEvent) => void,
+    requireEose = false,
   ) {
-    return this.subscribe(filter, onEvent);
+    return this.subscribe(filter, onEvent, requireEose);
   }
 
   async subscribeToChannelMentionEvents(
@@ -600,27 +602,20 @@ export class RelayClient {
   private async subscribe(
     filter: RelaySubscriptionFilter,
     onEvent: (event: RelayEvent) => void,
+    requireEose = false,
   ) {
     await this.ensureConnected();
 
     const subId = `live-${crypto.randomUUID()}`;
-    let resolveReady = () => {
-      return;
-    };
-    const ready = new Promise<void>((resolve) => {
-      resolveReady = () => {
-        window.clearTimeout(fallbackTimeout);
-        resolve();
-      };
-    });
-    const fallbackTimeout = window.setTimeout(() => {
-      resolveReady();
-    }, 250);
+    const { cancelReady, ready, rejectReady, resolveReady } =
+      createLiveSubscriptionReady(requireEose, HISTORY_TIMEOUT_MS);
 
     this.subscriptions.set(subId, {
       mode: "live",
       filter,
       onEvent,
+      requireEose,
+      rejectReady,
       resolveReady,
     });
 
@@ -629,12 +624,13 @@ export class RelayClient {
         ["REQ", subId, filter],
         "Failed to restore relay subscription.",
       );
+      await ready;
     } catch (error) {
-      window.clearTimeout(fallbackTimeout);
+      cancelReady();
       this.subscriptions.delete(subId);
+      await this.closeSubscription(subId).catch(() => {});
       throw error;
     }
-    await ready;
 
     return async () => {
       const active = this.subscriptions.get(subId);
@@ -1070,8 +1066,15 @@ export class RelayClient {
         continue;
       }
 
-      subscription.resolveReady?.();
-      subscription.resolveReady = undefined;
+      if (subscription.requireEose && options?.reconnect === false) {
+        subscription.rejectReady?.(error);
+        subscription.resolveReady = undefined;
+        subscription.rejectReady = undefined;
+      } else if (!subscription.requireEose) {
+        subscription.resolveReady?.();
+        subscription.resolveReady = undefined;
+        subscription.rejectReady = undefined;
+      }
       clearClosedRetry(subscription);
     }
 

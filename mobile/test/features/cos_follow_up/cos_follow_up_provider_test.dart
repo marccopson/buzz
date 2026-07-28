@@ -193,6 +193,36 @@ void main() {
       expect(sink.calls, 1);
     },
   );
+
+  test(
+    'tombstone between item snapshot and removal subscription is not missed',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final session = _FakeRelaySession(
+        itemHistory: [_itemEvent()],
+        emitRemovalDuringItemHistory: true,
+      );
+      final container = _container(
+        prefs: prefs,
+        session: session,
+        sink: _SequenceNotificationSink([]),
+      );
+      addTearDown(container.dispose);
+
+      container.read(cosFollowUpProvider);
+      await _waitUntil(() => !container.read(cosFollowUpProvider).loading);
+      await _flushAsync();
+
+      expect(
+        container.read(cosFollowUpProvider).items,
+        isEmpty,
+        reason:
+            'the trusted tombstone must win even when the item query returns a stale snapshot',
+      );
+      expect(session.removalListener, isNotNull);
+    },
+  );
 }
 
 Set<String> _storedItems(SharedPreferences prefs, String key) {
@@ -333,8 +363,18 @@ class _FakeRelayConfig extends RelayConfigNotifier {
 }
 
 class _FakeRelaySession extends RelaySessionNotifier {
+  final List<NostrEvent> itemHistory;
+  final bool emitRemovalDuringItemHistory;
+  final _liveItemHistory = <NostrEvent>[];
+  final _removedEventIds = <String>{};
+  bool _emittedRemovalDuringHistory = false;
   void Function(NostrEvent)? itemListener;
   void Function(NostrEvent)? removalListener;
+
+  _FakeRelaySession({
+    this.itemHistory = const [],
+    this.emitRemovalDuringItemHistory = false,
+  });
 
   @override
   SessionState build() => const SessionState(status: SessionStatus.connected);
@@ -343,7 +383,21 @@ class _FakeRelaySession extends RelaySessionNotifier {
   Future<List<NostrEvent>> fetchHistory(
     NostrFilter filter, {
     Duration timeout = const Duration(seconds: 8),
-  }) async => const [];
+  }) async {
+    if (!filter.kinds.contains(EventKind.cosFollowUpItem)) return const [];
+    if (emitRemovalDuringItemHistory && !_emittedRemovalDuringHistory) {
+      _emittedRemovalDuringHistory = true;
+      _removedEventIds.add('event-1');
+      scheduleMicrotask(
+        () => removalListener?.call(_removalEvent(targetEventId: 'event-1')),
+      );
+      return [...itemHistory, ..._liveItemHistory];
+    }
+    return [
+      ...itemHistory,
+      ..._liveItemHistory,
+    ].where((event) => !_removedEventIds.contains(event.id)).toList();
+  }
 
   @override
   Future<void Function()> subscribe(
@@ -352,11 +406,28 @@ class _FakeRelaySession extends RelaySessionNotifier {
     void Function(String message)? onClosed,
   }) async {
     if (filter.kinds.contains(EventKind.cosFollowUpItem)) {
-      itemListener = onEvent;
+      itemListener = (event) {
+        _liveItemHistory.add(event);
+        onEvent(event);
+      };
     }
     if (filter.kinds.contains(EventKind.deletion)) {
-      removalListener = onEvent;
+      removalListener = (event) {
+        final target = event.tags
+            .where((tag) => tag.length == 2 && tag[0] == 'e')
+            .map((tag) => tag[1])
+            .firstOrNull;
+        if (target != null) _removedEventIds.add(target);
+        onEvent(event);
+      };
     }
     return () {};
   }
+
+  @override
+  Future<void Function()> subscribeAfterEose(
+    NostrFilter filter,
+    void Function(NostrEvent) onEvent, {
+    void Function(String message)? onClosed,
+  }) => subscribe(filter, onEvent, onClosed: onClosed);
 }

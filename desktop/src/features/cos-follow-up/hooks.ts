@@ -221,9 +221,13 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
           return !matchesCurrentProjection;
         }),
     );
-    if (!removedCurrentProjection) return;
-    delete seenRef.current[removal.itemId];
-    saveSeen(normalizedPubkey, communityScope, seenRef.current);
+    if (removedCurrentProjection) {
+      delete seenRef.current[removal.itemId];
+      saveSeen(normalizedPubkey, communityScope, seenRef.current);
+    }
+    void queryClient.invalidateQueries({
+      queryKey: cosFollowUpQueryKey(normalizedPubkey, communityScope),
+    });
   });
 
   React.useEffect(() => {
@@ -241,6 +245,7 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
           limit: 0,
         },
         handleItem,
+        true,
       ),
       ...deletionChannelScope.map((channelId) =>
         relayClient.subscribeLive(
@@ -251,6 +256,7 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
             limit: 0,
           },
           handleRemoval,
+          true,
         ),
       ),
     ];
@@ -260,6 +266,9 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
           for (const unsubscribe of next) void unsubscribe().catch(() => {});
         } else {
           unsubscribers.push(...next);
+          void queryClient.invalidateQueries({
+            queryKey: cosFollowUpQueryKey(normalizedPubkey, communityScope),
+          });
         }
       })
       .catch((error) => {

@@ -1773,6 +1773,11 @@ async fn ingest_event_inner(
         extract_channel_id(&event)
     };
 
+    if let Some(buzz_core::cos_follow_up::FollowUpEvent::Remove(removal)) = cos_follow_up.as_ref() {
+        validate_cos_follow_up_removal_channel(removal.channel_id, channel_id)
+            .map_err(|message| IngestError::Rejected(message.into()))?;
+    }
+
     if is_global_only_kind(kind_u32) {
         channel_id = None;
     }
@@ -2657,6 +2662,17 @@ fn cos_follow_up_actor_authorized(
     })
 }
 
+fn validate_cos_follow_up_removal_channel(
+    signed_channel: Uuid,
+    target_storage_channel: Option<Uuid>,
+) -> Result<(), &'static str> {
+    if target_storage_channel == Some(signed_channel) {
+        Ok(())
+    } else {
+        Err("invalid: COS follow-up removal h tag does not match the target event channel")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -2841,6 +2857,22 @@ mod tests {
         assert!(
             !cos_follow_up_actor_authorized(true, &trusted_bridge, None, Some("owner")),
             "missing relay authority must fail closed"
+        );
+    }
+
+    #[test]
+    fn cos_follow_up_tombstone_rejects_signed_h_mismatched_from_target_e_channel() {
+        let signed_h = Uuid::new_v4();
+        let target_storage_channel = Uuid::new_v4();
+
+        assert!(
+            validate_cos_follow_up_removal_channel(signed_h, Some(target_storage_channel)).is_err(),
+            "a signed h must not authorise deletion of an e target stored in another channel"
+        );
+        assert!(validate_cos_follow_up_removal_channel(signed_h, Some(signed_h)).is_ok());
+        assert!(
+            validate_cos_follow_up_removal_channel(signed_h, None).is_err(),
+            "a scoped COS tombstone must fail closed when its e target has no stored channel"
         );
     }
 
