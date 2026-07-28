@@ -399,6 +399,13 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     final itemId = _exactTag(event, 'item');
     final target = _exactTag(event, 'e');
     if (channel == null || itemId == null || target == null) return;
+    final removedCurrentProjection = state.items.any(
+      (item) =>
+          item.channelId == channel &&
+          item.id == itemId &&
+          item.eventId == target,
+    );
+    if (!removedCurrentProjection) return;
     state = state.copyWith(
       items: state.items
           .where(

@@ -122,6 +122,41 @@ void main() {
       expect(prefs.getString(pendingKey), isNull);
     },
   );
+
+  test(
+    'stale tombstone preserves notification state for current event replay',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final session = _FakeRelaySession();
+      final sink = _SequenceNotificationSink([
+        CosFollowUpNotificationDelivery.shown,
+        CosFollowUpNotificationDelivery.shown,
+      ]);
+      final container = _container(prefs: prefs, session: session, sink: sink);
+      addTearDown(container.dispose);
+
+      container.read(cosFollowUpProvider);
+      await _waitUntil(() => session.itemListener != null);
+      final current = _itemEvent(eventId: 'event-current', version: 2);
+      session.itemListener!(current);
+      await _waitUntil(() => sink.calls == 1);
+      await _waitUntil(() => _storedItems(prefs, seenKey).contains('item-1'));
+      await _waitUntil(() => session.removalListener != null);
+
+      session.removalListener!(_removalEvent(targetEventId: 'event-stale'));
+      session.itemListener!(current);
+      await _flushAsync();
+
+      expect(
+        container.read(cosFollowUpProvider).items.single.eventId,
+        'event-current',
+      );
+      expect(_storedItems(prefs, seenKey), contains('item-1'));
+      expect(prefs.getString(pendingKey), isNull);
+      expect(sink.calls, 1);
+    },
+  );
 }
 
 Set<String> _storedItems(SharedPreferences prefs, String key) {
@@ -150,6 +185,12 @@ Future<void> _waitUntil(bool Function() predicate) async {
     await Future<void>.delayed(Duration.zero);
   }
   fail('Condition was not reached');
+}
+
+Future<void> _flushAsync() async {
+  for (var attempt = 0; attempt < 20; attempt++) {
+    await Future<void>.delayed(Duration.zero);
+  }
 }
 
 NostrEvent _itemEvent({
@@ -201,6 +242,20 @@ NostrEvent _itemEvent({
   sig: '',
 );
 
+NostrEvent _removalEvent({required String targetEventId}) => NostrEvent(
+  id: 'removal-event',
+  pubkey: 'bridge',
+  createdAt: 3,
+  kind: EventKind.deletion,
+  tags: [
+    ['h', '11111111-1111-1111-1111-111111111111'],
+    ['item', 'item-1'],
+    ['e', targetEventId],
+  ],
+  content: '',
+  sig: '',
+);
+
 class _ControlledNotificationSink implements CosFollowUpNotificationSink {
   final completion = Completer<CosFollowUpNotificationDelivery>();
   int calls = 0;
@@ -240,6 +295,7 @@ class _FakeRelayConfig extends RelayConfigNotifier {
 
 class _FakeRelaySession extends RelaySessionNotifier {
   void Function(NostrEvent)? itemListener;
+  void Function(NostrEvent)? removalListener;
 
   @override
   SessionState build() => const SessionState(status: SessionStatus.connected);
@@ -258,6 +314,9 @@ class _FakeRelaySession extends RelaySessionNotifier {
   }) async {
     if (filter.kinds.contains(EventKind.cosFollowUpItem)) {
       itemListener = onEvent;
+    }
+    if (filter.kinds.contains(EventKind.deletion)) {
+      removalListener = onEvent;
     }
     return () {};
   }

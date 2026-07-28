@@ -10,6 +10,7 @@ import {
   parseCosFollowUpReceipt,
   parseCosFollowUpRemoval,
   projectLatestCosFollowUpItems,
+  retainLatestCosFollowUpItem,
   resolveAcceptedCosFollowUpProjection,
   type SeenActionableItem,
   stateLabel,
@@ -139,26 +140,37 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
     } catch {
       return;
     }
+    let retainedItem: CosFollowUpItem | undefined;
     queryClient.setQueryData<CosFollowUpItem[]>(
       cosFollowUpQueryKey(normalizedPubkey, communityScope),
-      (current = []) =>
-        [item, ...current.filter((value) => value.id !== item.id)].sort(
+      (current = []) => {
+        const previousProjection = current.find(
+          (value) => value.id === item.id,
+        );
+        retainedItem = retainLatestCosFollowUpItem(previousProjection, item);
+        if (retainedItem === previousProjection) return current;
+        return [
+          retainedItem,
+          ...current.filter((value) => value.id !== item.id),
+        ].sort(
           (left, right) =>
             right.createdAt - left.createdAt || left.id.localeCompare(right.id),
-        ),
+        );
+      },
     );
+    if (!retainedItem || retainedItem.eventId !== item.eventId) return;
 
-    const previous = seenRef.current[item.id];
-    const shouldNotify = isNewlyActionableTransition(previous, item);
-    seenRef.current[item.id] = {
-      eventId: item.eventId,
-      state: item.state,
+    const previous = seenRef.current[retainedItem.id];
+    const shouldNotify = isNewlyActionableTransition(previous, retainedItem);
+    seenRef.current[retainedItem.id] = {
+      eventId: retainedItem.eventId,
+      state: retainedItem.state,
     };
     saveSeen(normalizedPubkey, communityScope, seenRef.current);
     if (shouldNotify) {
       void sendDesktopNotification({
-        title: stateLabel(item.state),
-        body: item.title,
+        title: stateLabel(retainedItem.state),
+        body: retainedItem.title,
       });
     }
   });
@@ -170,16 +182,20 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
     } catch {
       return;
     }
+    let removedCurrentProjection = false;
     queryClient.setQueryData<CosFollowUpItem[]>(
       cosFollowUpQueryKey(normalizedPubkey, communityScope),
       (current = []) =>
-        current.filter(
-          (item) =>
-            item.channelId !== removal.channelId ||
-            item.id !== removal.itemId ||
-            item.eventId !== removal.targetEventId,
-        ),
+        current.filter((item) => {
+          const matchesCurrentProjection =
+            item.channelId === removal.channelId &&
+            item.id === removal.itemId &&
+            item.eventId === removal.targetEventId;
+          removedCurrentProjection ||= matchesCurrentProjection;
+          return !matchesCurrentProjection;
+        }),
     );
+    if (!removedCurrentProjection) return;
     delete seenRef.current[removal.itemId];
     saveSeen(normalizedPubkey, communityScope, seenRef.current);
   });

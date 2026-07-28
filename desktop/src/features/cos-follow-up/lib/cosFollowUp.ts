@@ -277,22 +277,29 @@ export function projectLatestCosFollowUpItems(
     } catch {
       continue;
     }
-    const current = latest.get(item.id);
-    if (
-      !current ||
-      item.version > current.version ||
-      (item.version === current.version &&
-        (item.createdAt > current.createdAt ||
-          (item.createdAt === current.createdAt &&
-            item.eventId.localeCompare(current.eventId) < 0)))
-    ) {
-      latest.set(item.id, item);
-    }
+    latest.set(item.id, retainLatestCosFollowUpItem(latest.get(item.id), item));
   }
   return [...latest.values()].sort(
     (left, right) =>
       right.createdAt - left.createdAt || left.id.localeCompare(right.id),
   );
+}
+
+export function retainLatestCosFollowUpItem(
+  current: CosFollowUpItem | undefined,
+  candidate: CosFollowUpItem,
+): CosFollowUpItem {
+  if (
+    !current ||
+    candidate.version > current.version ||
+    (candidate.version === current.version &&
+      (candidate.createdAt > current.createdAt ||
+        (candidate.createdAt === current.createdAt &&
+          candidate.eventId.localeCompare(current.eventId) < 0)))
+  ) {
+    return candidate;
+  }
+  return current;
 }
 
 export function isCosFollowUpActionPermitted(
