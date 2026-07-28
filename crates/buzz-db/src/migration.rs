@@ -560,7 +560,7 @@ mod tests {
         let mut migrations: Vec<_> = MIGRATOR.iter().collect();
         migrations.sort_by_key(|migration| migration.version);
 
-        assert_eq!(migrations.len(), 25);
+        assert_eq!(migrations.len(), 26);
         assert_eq!(migrations[0].version, 1);
         assert_eq!(&*migrations[0].description, "initial schema");
         assert!(migrations[0]
@@ -879,6 +879,29 @@ mod tests {
             .to_lowercase()
             .contains("for update"));
         assert!(ttl_shared.contains("NEW.kind <> 9007"));
+
+        // Version 25 was first shipped by upstream for durable relay invites.
+        // Fork-only additions must never reuse an upstream migration version:
+        // a brownfield database records the original checksum and sqlx will
+        // reject a different migration at that version before startup.
+        assert_eq!(migrations[24].version, 25);
+        assert_eq!(&*migrations[24].description, "relay invites");
+        assert_eq!(
+            hex::encode(migrations[24].checksum.as_ref()),
+            "d4fdfc8bc8c9d75f7b812f40d533af80de1053fdd0d95c99b6ff6376e7d7090a8b514ef4e0e9d31aba258e6e7833b1c5",
+            "migration 25 checksum must remain byte-for-byte compatible with the live upstream migration ledger"
+        );
+        assert!(migrations[24]
+            .sql
+            .as_str()
+            .contains("CREATE TABLE relay_invites"));
+
+        assert_eq!(migrations[25].version, 26);
+        assert_eq!(&*migrations[25].description, "users agent owner lookup");
+        assert!(migrations[25]
+            .sql
+            .as_str()
+            .contains("CREATE INDEX idx_users_agent_owner"));
     }
 
     #[test]
