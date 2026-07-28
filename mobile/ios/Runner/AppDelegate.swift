@@ -3,6 +3,11 @@ import Flutter
 import UIKit
 import UserNotifications
 
+typealias FollowUpNotificationScheduler = (
+  UNNotificationRequest,
+  @escaping (Error?) -> Void
+) -> Void
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var mediaUploadChannel: FlutterMethodChannel?
@@ -52,9 +57,15 @@ import UserNotifications
     }
   }
 
-  private static func handleFollowUpNotificationMethodCall(
+  static func handleFollowUpNotificationMethodCall(
     _ call: FlutterMethodCall,
-    result: @escaping FlutterResult
+    result: @escaping FlutterResult,
+    schedule: FollowUpNotificationScheduler = { request, completion in
+      UNUserNotificationCenter.current().add(
+        request,
+        withCompletionHandler: completion
+      )
+    }
   ) {
     guard call.method == "show" else {
       result(FlutterMethodNotImplemented)
@@ -84,19 +95,9 @@ import UserNotifications
       content: content,
       trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
     )
-    UNUserNotificationCenter.current().add(request) { error in
+    schedule(request) { error in
       DispatchQueue.main.async {
-        if let error {
-          result(
-            FlutterError(
-              code: "notification_failed",
-              message: error.localizedDescription,
-              details: nil
-            )
-          )
-        } else {
-          result(nil)
-        }
+        result(error == nil ? "shown" : "denied")
       }
     }
   }

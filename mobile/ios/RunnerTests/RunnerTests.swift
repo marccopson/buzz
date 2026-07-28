@@ -6,6 +6,59 @@ import XCTest
 
 class RunnerTests: XCTestCase {
 
+  func testFollowUpNotificationAcknowledgesShownAfterScheduling() {
+    let acknowledged = expectation(description: "notification acknowledged")
+    let call = FlutterMethodCall(
+      methodName: "show",
+      arguments: [
+        "id": "event-1",
+        "title": "We need you",
+        "body": "Confirm the evidence",
+      ]
+    )
+
+    AppDelegate.handleFollowUpNotificationMethodCall(
+      call,
+      result: { value in
+        XCTAssertEqual(value as? String, "shown")
+        acknowledged.fulfill()
+      },
+      schedule: { request, completion in
+        XCTAssertEqual(request.identifier, "event-1")
+        XCTAssertEqual(request.content.title, "We need you")
+        XCTAssertEqual(request.content.body, "Confirm the evidence")
+        completion(nil)
+      }
+    )
+
+    wait(for: [acknowledged], timeout: 1)
+  }
+
+  func testFollowUpNotificationAcknowledgesDeniedAfterSchedulingFailure() {
+    let acknowledged = expectation(description: "notification denied")
+    let call = FlutterMethodCall(
+      methodName: "show",
+      arguments: [
+        "id": "event-1",
+        "title": "We need you",
+        "body": "Confirm the evidence",
+      ]
+    )
+
+    AppDelegate.handleFollowUpNotificationMethodCall(
+      call,
+      result: { value in
+        XCTAssertEqual(value as? String, "denied")
+        acknowledged.fulfill()
+      },
+      schedule: { _, completion in
+        completion(NSError(domain: "notifications", code: 1))
+      }
+    )
+
+    wait(for: [acknowledged], timeout: 1)
+  }
+
   func testDynamicIslandQrScannerRecognizesTallSafeAreas() {
     for safeAreaTopInset in [51, 59, 62] {
       XCTAssertTrue(
