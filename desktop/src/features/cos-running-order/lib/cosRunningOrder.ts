@@ -2,6 +2,7 @@ export type CosRunningOrderState =
   | "blocked"
   | "human-test"
   | "running"
+  | "active"
   | "ready"
   | "queued"
   | "completed";
@@ -40,6 +41,7 @@ export type CosRunningOrder = {
   stagingRevision: string | null;
   sourceErrors: string[];
   counts: {
+    active: number;
     blocked: number;
     completed: number;
     humanTest: number;
@@ -56,6 +58,7 @@ const VALID_STATES = new Set<CosRunningOrderState>([
   "blocked",
   "human-test",
   "running",
+  "active",
   "ready",
   "queued",
   "completed",
@@ -102,7 +105,7 @@ function projectItem(raw: RawRecord): CosRunningOrderItem {
     summary: text(raw.summary),
     jiraStatus: text(raw.jira_status),
     priority: text(raw.priority),
-    state: state(raw.state),
+    state: state(raw.execution_state || raw.state),
     blockers: strings(raw.blockers),
     admissionSignals: strings(raw.admission_signals),
     pullRequests: records(raw.pull_requests)
@@ -186,12 +189,13 @@ export function projectCosRunningOrder(input: unknown): CosRunningOrder {
     stagingRevision: text(raw.staging_revision) || null,
     sourceErrors: strings(raw.source_errors),
     counts: {
+      active: numberOrZero(rawCounts.active),
       blocked: numberOrZero(rawCounts.blocked),
       completed: numberOrZero(rawCounts.completed),
       humanTest: numberOrZero(rawCounts.human_test),
       queued: numberOrZero(rawCounts.queued),
       ready: numberOrZero(rawCounts.ready),
-      running: numberOrZero(rawCounts.running),
+      running: numberOrZero(rawCounts.agent_running ?? rawCounts.running),
     },
     items: records(raw.items)
       .map(projectItem)

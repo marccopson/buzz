@@ -26,12 +26,14 @@ void main() {
           'overall_status': 'degraded',
           'staging_revision': 'a1b2c3d4e5f678901234567890abcdef',
           'counts': {
+            'active': 7,
+            'agent_running': 1,
             'blocked': 22,
             'completed': 0,
             'human_test': 1,
             'queued': 96,
             'ready': 0,
-            'running': 6,
+            'running': 8,
           },
           'items': [
             {
@@ -41,6 +43,16 @@ void main() {
               'priority': 'High',
               'state': 'blocked',
               'blockers': ['Draft pull request has merge conflicts'],
+              'staging_evidenced': false,
+            },
+            {
+              'key': 'COS-588',
+              'summary': 'Awaiting review in Jira',
+              'jira_status': 'In Review',
+              'priority': 'Medium',
+              'state': 'running',
+              'execution_state': 'active',
+              'blockers': <String>[],
               'staging_evidenced': false,
             },
             {
@@ -78,6 +90,8 @@ void main() {
     expect(find.textContaining('Delivery degraded'), findsOneWidget);
     expect(find.text('COS-469'), findsOneWidget);
     expect(find.text('Draft pull request has merge conflicts'), findsOneWidget);
+    expect(find.text('Jira active'), findsWidgets);
+    expect(find.text('COS-588'), findsOneWidget);
     expect(find.text('COS-700'), findsNothing);
   });
 }

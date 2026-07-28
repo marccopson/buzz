@@ -12,12 +12,14 @@ const RUNNING_ORDER = {
   staging_revision: "a1b2c3d4e5f678901234567890abcdef12345678",
   source_errors: [],
   counts: {
+    active: 7,
+    agent_running: 1,
     blocked: 22,
     completed: 0,
     human_test: 1,
     queued: 96,
     ready: 0,
-    running: 6,
+    running: 8,
   },
   items: [
     {
@@ -50,6 +52,19 @@ const RUNNING_ORDER = {
       },
       staging_evidenced: false,
     },
+    {
+      key: "COS-588",
+      summary: "Awaiting review in Jira",
+      jira_status: "In Review",
+      priority: "Medium",
+      state: "running",
+      execution_state: "active",
+      blockers: [],
+      admission_signals: [],
+      pull_requests: [],
+      active_run: null,
+      staging_evidenced: false,
+    },
   ],
 };
 
@@ -77,12 +92,18 @@ test.describe("COS running order", () => {
     await expect(page.getByText("Collector healthy")).toBeVisible();
     await expect(page.getByText(/Delivery state: degraded/)).toBeVisible();
     await expect(page.getByText("22", { exact: true })).toBeVisible();
-    await expect(page.getByText("6", { exact: true })).toBeVisible();
+    await expect(page.getByText("7", { exact: true })).toBeVisible();
     await expect(page.getByTestId("running-order-item-COS-469")).toContainText(
       "Draft pull request has merge conflicts",
     );
     await expect(page.getByTestId("running-order-item-COS-540")).toContainText(
       "card/COS-540-reporting",
+    );
+    await expect(page.getByTestId("running-order-item-COS-540")).toContainText(
+      "Agent running",
+    );
+    await expect(page.getByTestId("running-order-item-COS-588")).toContainText(
+      "Jira active",
     );
 
     await waitForAnimations(page);
