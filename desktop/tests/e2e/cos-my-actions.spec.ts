@@ -11,6 +11,94 @@ test.describe("COS My Actions", () => {
     await installMockBridge(page);
   });
 
+  test("an already-open queue applies live upserts and removals immediately", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect
+      .poll(() =>
+        page.evaluate(
+          ({ pubkey }) =>
+            window.__BUZZ_E2E_HAS_MOCK_OWNER_KIND_SUBSCRIPTION__?.({
+              ownerPubkey: pubkey,
+              kind: 37010,
+            }) ?? false,
+          { pubkey: ASSIGNEE },
+        ),
+      )
+      .toBe(true);
+
+    await page.getByTestId("open-my-actions-view").click();
+    await expect(page.getByText("Nothing needs you right now")).toBeVisible();
+
+    await page.evaluate(
+      ({ assignee, eventId, itemId }) => {
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName: "general",
+          content: JSON.stringify({
+            schema: "mac-workspace/cos-follow-up/v1",
+            id: itemId,
+            jira_key: "COS-683",
+            title: "Live queue item",
+            question_evidence: {
+              question: "Did this arrive without polling?",
+              evidence: "Live relay delivery",
+            },
+            state: "needs-answer",
+            assigned_person: { id: 1, name: "Marc" },
+            named_confirmer: null,
+            version: 1,
+            permitted_actions: ["answer"],
+            timestamps: {
+              created_at: "2026-07-28T06:00:00Z",
+              updated_at: "2026-07-28T06:00:00Z",
+              published_at: "2026-07-28T06:00:00Z",
+              last_activity_at: "2026-07-28T06:00:00Z",
+              answered_at: null,
+              ready_to_check_at: null,
+              confirmed_at: null,
+              rejected_at: null,
+            },
+            deep_links: {
+              meeting_follow_up:
+                "https://workspace.example/ops/meeting-follow-up?item_id=live",
+              jira: null,
+              sources: [],
+            },
+          }),
+          extraTags: [
+            ["d", itemId],
+            ["p", assignee],
+          ],
+          id: eventId,
+          kind: 37010,
+        });
+      },
+      { assignee: ASSIGNEE, eventId: ITEM_EVENT_ID, itemId: ITEM_ID },
+    );
+
+    const card = page.getByTestId(`my-actions-item-${ITEM_ID}`);
+    await expect(card).toContainText("Live queue item");
+
+    await page.evaluate(
+      ({ itemEventId, itemId }) => {
+        window.__BUZZ_E2E_EMIT_MOCK_MESSAGE__?.({
+          channelName: "general",
+          content: "",
+          extraTags: [
+            ["item", itemId],
+            ["e", itemEventId],
+          ],
+          id: "6".repeat(64),
+          kind: 5,
+        });
+      },
+      { itemEventId: ITEM_EVENT_ID, itemId: ITEM_ID },
+    );
+
+    await expect(card).toHaveCount(0);
+  });
+
   test("renders evidence and submits an answer against the authoritative version", async ({
     page,
   }) => {

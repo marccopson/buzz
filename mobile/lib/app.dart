@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_badge_plus/app_badge_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -55,6 +57,13 @@ class App extends HookConsumerWidget {
       ref.watch(appLifecycleProvider);
       ref.watch(userStatusCacheProvider);
       ref.watch(cosFollowUpProvider);
+      ref.listen(appLifecycleProvider, (_, next) {
+        if (next == AppLifecycleState.resumed) {
+          unawaited(
+            ref.read(cosFollowUpProvider.notifier).retryPendingNotifications(),
+          );
+        }
+      });
     }
 
     // Start listening for buzz:// links immediately (even pre-auth) so a

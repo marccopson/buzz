@@ -29,7 +29,7 @@ import { useUnreadChannels } from "@/features/channels/useUnreadChannels";
 import { msgContextKey } from "@/features/channels/readState/readStateFormat";
 import { useMembershipNotifications } from "@/features/channels/useMembershipNotifications";
 import { useFeedItemState } from "@/features/home/useFeedItemState";
-import { useCosFollowUpSync as useCosSync } from "@/features/cos-follow-up/hooks";
+import { useCosFollowUpCommunitySync as useCosSync } from "@/features/cos-follow-up/hooks";
 import { useThreadFollows } from "@/features/messages/lib/useThreadFollows";
 import {
   useHomeFeedNotifications,
@@ -163,7 +163,7 @@ export function AppShell() {
     : DEFAULT_SETTINGS_SECTION;
   const startupReady = useDeferredStartup();
   const identityQuery = useIdentityQuery();
-  useCosSync(identityQuery.data?.pubkey, communitiesHook.activeCommunity?.id);
+  useCosSync(identityQuery.data?.pubkey, communitiesHook.activeCommunity);
   const { mutedChannelIds, muteChannel, unmuteChannel } = useChannelMutes(
     identityQuery.data?.pubkey,
   );

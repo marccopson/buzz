@@ -10,6 +10,7 @@ import * as React from "react";
 
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
+  cosFollowUpCommunityScope,
   CosFollowUpSubmissionError,
   useCosFollowUpQuery,
   useSubmitCosFollowUpAction,
@@ -30,13 +31,13 @@ import type { RelayEvent } from "@/shared/api/types";
 function FollowUpCard({
   item,
   pubkey,
-  relayScope,
+  communityScope,
 }: {
   item: CosFollowUpItem;
   pubkey: string;
-  relayScope: string;
+  communityScope: string;
 }) {
-  const submit = useSubmitCosFollowUpAction(pubkey, relayScope);
+  const submit = useSubmitCosFollowUpAction(pubkey, communityScope);
   const [draftAction, setDraftAction] =
     React.useState<CosFollowUpHumanAction | null>(null);
   const [draft, setDraft] = React.useState("");
@@ -236,8 +237,8 @@ export function CosFollowUpScreen() {
   const identity = useIdentityQuery();
   const { activeCommunity } = useCommunities();
   const pubkey = identity.data?.pubkey ?? "";
-  const relayScope = activeCommunity?.relayUrl ?? "";
-  const query = useCosFollowUpQuery(pubkey, relayScope);
+  const communityScope = cosFollowUpCommunityScope(activeCommunity);
+  const query = useCosFollowUpQuery(pubkey, communityScope);
   const openItems = (query.data ?? []).filter(
     (item) => item.state !== "confirmed",
   );
@@ -309,7 +310,7 @@ export function CosFollowUpScreen() {
                       item={item}
                       key={item.id}
                       pubkey={pubkey}
-                      relayScope={relayScope}
+                      communityScope={communityScope}
                     />
                   ))}
                 </div>
@@ -333,7 +334,7 @@ export function CosFollowUpScreen() {
                     item={item}
                     key={item.id}
                     pubkey={pubkey}
-                    relayScope={relayScope}
+                    communityScope={communityScope}
                   />
                 ))}
               </div>

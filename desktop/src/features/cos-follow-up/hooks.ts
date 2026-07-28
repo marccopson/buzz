@@ -14,6 +14,7 @@ import {
   type SeenActionableItem,
   stateLabel,
 } from "@/features/cos-follow-up/lib/cosFollowUp";
+import type { Community } from "@/features/communities/types";
 import { sendDesktopNotification } from "@/features/notifications/lib/desktop";
 import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
@@ -24,24 +25,29 @@ import {
   KIND_DELETION,
 } from "@/shared/constants/kinds";
 
-export const cosFollowUpQueryKey = (pubkey: string, relayScope = "") =>
-  ["cos-follow-up", relayScope, pubkey.toLowerCase()] as const;
+export const cosFollowUpCommunityScope = (
+  community: Pick<Community, "id"> | null | undefined,
+) => community?.id ?? "";
+
+export const cosFollowUpQueryKey = (pubkey: string, communityScope = "") =>
+  ["cos-follow-up", communityScope, pubkey.toLowerCase()] as const;
 
 const NOTIFICATION_STORAGE_PREFIX = "buzz.cos-follow-up.seen.v1";
 const RECEIPT_WAIT_MS = 45_000;
 const RECEIPT_POLL_MS = 750;
 
-function notificationStorageKey(pubkey: string, relayScope: string) {
-  return `${NOTIFICATION_STORAGE_PREFIX}:${relayScope}:${pubkey.toLowerCase()}`;
+function notificationStorageKey(pubkey: string, communityScope: string) {
+  return `${NOTIFICATION_STORAGE_PREFIX}:${communityScope}:${pubkey.toLowerCase()}`;
 }
 
 function loadSeen(
   pubkey: string,
-  relayScope: string,
+  communityScope: string,
 ): Record<string, SeenActionableItem> {
   try {
     const parsed = JSON.parse(
-      localStorage.getItem(notificationStorageKey(pubkey, relayScope)) ?? "{}",
+      localStorage.getItem(notificationStorageKey(pubkey, communityScope)) ??
+        "{}",
     ) as unknown;
     return parsed !== null && typeof parsed === "object"
       ? (parsed as Record<string, SeenActionableItem>)
@@ -53,11 +59,11 @@ function loadSeen(
 
 function saveSeen(
   pubkey: string,
-  relayScope: string,
+  communityScope: string,
   seen: Record<string, SeenActionableItem>,
 ) {
   localStorage.setItem(
-    notificationStorageKey(pubkey, relayScope),
+    notificationStorageKey(pubkey, communityScope),
     JSON.stringify(seen),
   );
 }
@@ -71,10 +77,10 @@ async function fetchItems(pubkey: string) {
   return projectLatestCosFollowUpItems(events, pubkey);
 }
 
-export function useCosFollowUpQuery(pubkey?: string, relayScope = "") {
+export function useCosFollowUpQuery(pubkey?: string, communityScope = "") {
   const normalizedPubkey = pubkey?.trim().toLowerCase() ?? "";
   return useQuery({
-    queryKey: cosFollowUpQueryKey(normalizedPubkey, relayScope),
+    queryKey: cosFollowUpQueryKey(normalizedPubkey, communityScope),
     queryFn: () => fetchItems(normalizedPubkey),
     enabled: normalizedPubkey.length > 0,
     staleTime: 15_000,
@@ -89,10 +95,10 @@ export function useCosFollowUpQuery(pubkey?: string, relayScope = "") {
  * item state transitions notify once; duplicate delivery and same-state
  * version refreshes update the cache without another notification.
  */
-export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
+export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
   const normalizedPubkey = pubkey?.trim().toLowerCase() ?? "";
   const queryClient = useQueryClient();
-  const query = useCosFollowUpQuery(normalizedPubkey, relayScope);
+  const query = useCosFollowUpQuery(normalizedPubkey, communityScope);
   const initializedRef = React.useRef(false);
   const seenRef = React.useRef<Record<string, SeenActionableItem>>({});
   const deletionChannelScope = React.useMemo(
@@ -103,8 +109,10 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
   React.useEffect(() => {
     initializedRef.current = false;
     seenRef.current =
-      normalizedPubkey.length > 0 ? loadSeen(normalizedPubkey, relayScope) : {};
-  }, [normalizedPubkey, relayScope]);
+      normalizedPubkey.length > 0
+        ? loadSeen(normalizedPubkey, communityScope)
+        : {};
+  }, [communityScope, normalizedPubkey]);
 
   React.useEffect(() => {
     if (
@@ -120,9 +128,9 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
         state: item.state,
       };
     }
-    saveSeen(normalizedPubkey, relayScope, seenRef.current);
+    saveSeen(normalizedPubkey, communityScope, seenRef.current);
     initializedRef.current = true;
-  }, [normalizedPubkey, query.data, relayScope]);
+  }, [communityScope, normalizedPubkey, query.data]);
 
   const handleItem = React.useEffectEvent((event: RelayEvent) => {
     let item: CosFollowUpItem;
@@ -132,7 +140,7 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
       return;
     }
     queryClient.setQueryData<CosFollowUpItem[]>(
-      cosFollowUpQueryKey(normalizedPubkey, relayScope),
+      cosFollowUpQueryKey(normalizedPubkey, communityScope),
       (current = []) =>
         [item, ...current.filter((value) => value.id !== item.id)].sort(
           (left, right) =>
@@ -146,7 +154,7 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
       eventId: item.eventId,
       state: item.state,
     };
-    saveSeen(normalizedPubkey, relayScope, seenRef.current);
+    saveSeen(normalizedPubkey, communityScope, seenRef.current);
     if (shouldNotify) {
       void sendDesktopNotification({
         title: stateLabel(item.state),
@@ -163,7 +171,7 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
       return;
     }
     queryClient.setQueryData<CosFollowUpItem[]>(
-      cosFollowUpQueryKey(normalizedPubkey, relayScope),
+      cosFollowUpQueryKey(normalizedPubkey, communityScope),
       (current = []) =>
         current.filter(
           (item) =>
@@ -173,7 +181,7 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
         ),
     );
     delete seenRef.current[removal.itemId];
-    saveSeen(normalizedPubkey, relayScope, seenRef.current);
+    saveSeen(normalizedPubkey, communityScope, seenRef.current);
   });
 
   React.useEffect(() => {
@@ -213,7 +221,7 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
       });
     const unsubscribeReconnect = relayClient.subscribeToReconnects(() => {
       void queryClient.invalidateQueries({
-        queryKey: cosFollowUpQueryKey(normalizedPubkey, relayScope),
+        queryKey: cosFollowUpQueryKey(normalizedPubkey, communityScope),
       });
     });
     return () => {
@@ -223,7 +231,14 @@ export function useCosFollowUpSync(pubkey?: string, relayScope = "") {
         void unsubscribe().catch(() => {});
       }
     };
-  }, [deletionChannelScope, normalizedPubkey, queryClient, relayScope]);
+  }, [communityScope, deletionChannelScope, normalizedPubkey, queryClient]);
+}
+
+export function useCosFollowUpCommunitySync(
+  pubkey: string | undefined,
+  community: Pick<Community, "id"> | null | undefined,
+) {
+  useCosFollowUpSync(pubkey, cosFollowUpCommunityScope(community));
 }
 
 export class CosFollowUpSubmissionError extends Error {
@@ -385,7 +400,10 @@ export async function submitCosFollowUpAction({
   });
 }
 
-export function useSubmitCosFollowUpAction(pubkey?: string, relayScope = "") {
+export function useSubmitCosFollowUpAction(
+  pubkey?: string,
+  communityScope = "",
+) {
   const queryClient = useQueryClient();
   const normalizedPubkey = pubkey?.trim().toLowerCase() ?? "";
   return useMutation({
@@ -402,7 +420,7 @@ export function useSubmitCosFollowUpAction(pubkey?: string, relayScope = "") {
       }),
     onSuccess: (authoritative, variables) => {
       queryClient.setQueryData<CosFollowUpItem[]>(
-        cosFollowUpQueryKey(normalizedPubkey, relayScope),
+        cosFollowUpQueryKey(normalizedPubkey, communityScope),
         (current = []) =>
           authoritative
             ? [

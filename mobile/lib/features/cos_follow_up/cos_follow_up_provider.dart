@@ -67,13 +67,59 @@ class _ActionAttempt {
   });
 }
 
+class _PendingCosFollowUpNotification {
+  final String itemId;
+  final String eventId;
+  final String state;
+  final String title;
+  final String body;
+
+  const _PendingCosFollowUpNotification({
+    required this.itemId,
+    required this.eventId,
+    required this.state,
+    required this.title,
+    required this.body,
+  });
+
+  factory _PendingCosFollowUpNotification.fromItem(CosFollowUpItem item) =>
+      _PendingCosFollowUpNotification(
+        itemId: item.id,
+        eventId: item.eventId,
+        state: item.state.wireValue,
+        title: cosFollowUpStateLabel(item.state),
+        body: item.title,
+      );
+
+  factory _PendingCosFollowUpNotification.fromJson(
+    String itemId,
+    Map<String, dynamic> json,
+  ) => _PendingCosFollowUpNotification(
+    itemId: itemId,
+    eventId: json['event_id'] as String,
+    state: json['state'] as String,
+    title: json['title'] as String,
+    body: json['body'] as String,
+  );
+
+  Map<String, String> toJson() => {
+    'event_id': eventId,
+    'state': state,
+    'title': title,
+    'body': body,
+  };
+}
+
 class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   void Function()? _unsubscribeItems;
   void Function()? _unsubscribeRemovals;
   String _pubkey = '';
   String _relayScope = '';
   final _seen = <String, SeenCosFollowUp>{};
+  final _pendingNotifications = <String, _PendingCosFollowUpNotification>{};
+  final _deliveryInFlight = <String>{};
   final _attempts = <String, _ActionAttempt>{};
+  int _notificationGeneration = 0;
 
   @override
   CosFollowUpViewState build() {
@@ -87,9 +133,14 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     if (_pubkey != pubkey || _relayScope != relayScope) {
       _pubkey = pubkey;
       _relayScope = relayScope;
+      _notificationGeneration++;
       _seen
         ..clear()
         ..addAll(_loadSeen());
+      _pendingNotifications
+        ..clear()
+        ..addAll(_loadPendingNotifications());
+      _deliveryInFlight.clear();
       Future.microtask(refresh);
     }
     return const CosFollowUpViewState();
@@ -97,6 +148,10 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
 
   String get _seenKey =>
       'buzz.cos-follow-up.seen.v1:$_relayScope:${_pubkey.toLowerCase()}';
+
+  String get _pendingNotificationKey =>
+      'buzz.cos-follow-up.pending-notifications.v1:'
+      '$_relayScope:${_pubkey.toLowerCase()}';
 
   Map<String, SeenCosFollowUp> _loadSeen() {
     try {
@@ -130,6 +185,46 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         }),
       );
 
+  Map<String, _PendingCosFollowUpNotification> _loadPendingNotifications() {
+    try {
+      final raw = ref
+          .read(savedPrefsProvider)
+          .getString(_pendingNotificationKey);
+      final decoded = raw == null ? null : jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) return {};
+      return {
+        for (final entry in decoded.entries)
+          if (entry.value is Map<String, dynamic>)
+            entry.key: _PendingCosFollowUpNotification.fromJson(
+              entry.key,
+              entry.value as Map<String, dynamic>,
+            ),
+      };
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _savePendingNotifications() async {
+    final prefs = ref.read(savedPrefsProvider);
+    if (_pendingNotifications.isEmpty) {
+      await prefs.remove(_pendingNotificationKey);
+      return;
+    }
+    await prefs.setString(
+      _pendingNotificationKey,
+      jsonEncode({
+        for (final entry in _pendingNotifications.entries)
+          entry.key: entry.value.toJson(),
+      }),
+    );
+  }
+
+  Future<void> _saveNotificationState() async {
+    await _saveSeen();
+    await _savePendingNotifications();
+  }
+
   Future<void> refresh() async {
     if (_pubkey.isEmpty) return;
     state = state.copyWith(loading: state.items.isEmpty, clearLoadError: true);
@@ -147,18 +242,26 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
           );
       final items = projectLatestCosFollowUpItems(events, _pubkey);
       for (final item in items) {
+        final pending = _pendingNotifications[item.id];
+        if (item.state != CosFollowUpState.confirmed && pending != null) {
+          _pendingNotifications[item.id] =
+              _PendingCosFollowUpNotification.fromItem(item);
+          continue;
+        }
+        _pendingNotifications.remove(item.id);
         _seen[item.id] = SeenCosFollowUp(
           eventId: item.eventId,
           state: item.state.wireValue,
         );
       }
-      await _saveSeen();
+      await _saveNotificationState();
       state = state.copyWith(
         items: items,
         loading: false,
         clearLoadError: true,
       );
       await _subscribe(items.map((item) => item.channelId).toSet());
+      unawaited(retryPendingNotifications());
     } catch (error) {
       state = state.copyWith(loading: false, loadError: '$error');
     }
@@ -213,22 +316,33 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         event,
       ], _pubkey),
     );
-    _seen[item.id] = SeenCosFollowUp(
-      eventId: item.eventId,
-      state: item.state.wireValue,
-    );
-    unawaited(_saveSeen());
-    if (isNewlyActionableTransition(prior, item)) {
-      unawaited(
-        ref
-            .read(cosFollowUpNotificationSinkProvider)
-            .show(
-              id: item.eventId,
-              title: cosFollowUpStateLabel(item.state),
-              body: item.title,
-            )
-            .catchError((_) {}),
+    final pending = _pendingNotifications[item.id];
+    if (item.state == CosFollowUpState.confirmed) {
+      _pendingNotifications.remove(item.id);
+      _seen[item.id] = SeenCosFollowUp(
+        eventId: item.eventId,
+        state: item.state.wireValue,
       );
+      unawaited(_saveNotificationState());
+    } else if (pending != null) {
+      _pendingNotifications[item.id] = _PendingCosFollowUpNotification.fromItem(
+        item,
+      );
+      unawaited(_savePendingNotifications());
+      if (pending.state != item.state.wireValue) {
+        _queuePendingDelivery(item.id);
+      }
+    } else if (isNewlyActionableTransition(prior, item)) {
+      _pendingNotifications[item.id] = _PendingCosFollowUpNotification.fromItem(
+        item,
+      );
+      unawaited(_persistAndQueuePendingDelivery(item.id));
+    } else {
+      _seen[item.id] = SeenCosFollowUp(
+        eventId: item.eventId,
+        state: item.state.wireValue,
+      );
+      unawaited(_saveSeen());
     }
     if (!existingChannels.contains(item.channelId)) {
       unawaited(_subscribe({...existingChannels, item.channelId}));
@@ -296,7 +410,75 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
           .toList(),
     );
     _seen.remove(itemId);
-    unawaited(_saveSeen());
+    _pendingNotifications.remove(itemId);
+    unawaited(_saveNotificationState());
+  }
+
+  Future<void> _persistAndQueuePendingDelivery(String itemId) async {
+    final generation = _notificationGeneration;
+    await _savePendingNotifications();
+    if (generation == _notificationGeneration) {
+      _queuePendingDelivery(itemId);
+    }
+  }
+
+  /// Re-attempts notifications retained after permission denial or app exit.
+  ///
+  /// The app calls this when it resumes, so granting notification permission
+  /// in Android settings replays the queued actionable state immediately.
+  Future<void> retryPendingNotifications() async {
+    for (final itemId in _pendingNotifications.keys.toList()) {
+      _queuePendingDelivery(itemId);
+    }
+  }
+
+  void _queuePendingDelivery(String itemId) {
+    final generation = _notificationGeneration;
+    final token = '$generation:$itemId';
+    if (!_deliveryInFlight.add(token)) return;
+    unawaited(_deliverPending(itemId, generation, token));
+  }
+
+  Future<void> _deliverPending(
+    String itemId,
+    int generation,
+    String token,
+  ) async {
+    try {
+      while (generation == _notificationGeneration) {
+        final pending = _pendingNotifications[itemId];
+        if (pending == null) return;
+        CosFollowUpNotificationDelivery outcome;
+        try {
+          outcome = await ref
+              .read(cosFollowUpNotificationSinkProvider)
+              .show(
+                id: pending.eventId,
+                title: pending.title,
+                body: pending.body,
+              );
+        } catch (_) {
+          return;
+        }
+        if (generation != _notificationGeneration) return;
+        final current = _pendingNotifications[itemId];
+        if (outcome == CosFollowUpNotificationDelivery.denied) return;
+        if (current == null) return;
+
+        final deliveredCurrentState = current.state == pending.state;
+        _seen[itemId] = SeenCosFollowUp(
+          eventId: deliveredCurrentState ? current.eventId : pending.eventId,
+          state: pending.state,
+        );
+        if (deliveredCurrentState) {
+          _pendingNotifications.remove(itemId);
+        }
+        await _saveNotificationState();
+        if (deliveredCurrentState) return;
+      }
+    } finally {
+      _deliveryInFlight.remove(token);
+    }
   }
 
   String? _exactTag(NostrEvent event, String name) {
