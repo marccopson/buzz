@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:buzz/features/cos_follow_up/cos_follow_up.dart';
+import 'package:buzz/features/cos_follow_up/cos_follow_up_authority.dart';
 import 'package:buzz/features/cos_follow_up/cos_follow_up_notification_service.dart';
 import 'package:buzz/features/cos_follow_up/cos_follow_up_provider.dart';
 import 'package:buzz/shared/relay/relay.dart';
@@ -157,6 +158,41 @@ void main() {
       expect(sink.calls, 1);
     },
   );
+
+  test(
+    'delayed lower version neither regresses nor mutates notification state',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final session = _FakeRelaySession();
+      final sink = _SequenceNotificationSink([
+        CosFollowUpNotificationDelivery.shown,
+        CosFollowUpNotificationDelivery.shown,
+      ]);
+      final container = _container(prefs: prefs, session: session, sink: sink);
+      addTearDown(container.dispose);
+
+      container.read(cosFollowUpProvider);
+      await _waitUntil(() => session.itemListener != null);
+      session.itemListener!(
+        _itemEvent(eventId: 'event-current', state: 'needs-answer', version: 2),
+      );
+      await _waitUntil(() => sink.calls == 1);
+      await _waitUntil(() => _storedItems(prefs, seenKey).contains('item-1'));
+
+      session.itemListener!(
+        _itemEvent(eventId: 'event-stale', state: 'ready-to-check', version: 1),
+      );
+      await _flushAsync();
+
+      final retained = container.read(cosFollowUpProvider).items.single;
+      expect(retained.eventId, 'event-current');
+      expect(retained.state, CosFollowUpState.needsAnswer);
+      expect(_storedItems(prefs, seenKey), contains('item-1'));
+      expect(prefs.getString(pendingKey), isNull);
+      expect(sink.calls, 1);
+    },
+  );
 }
 
 Set<String> _storedItems(SharedPreferences prefs, String key) {
@@ -175,6 +211,9 @@ ProviderContainer _container({
     relayConfigProvider.overrideWith(_FakeRelayConfig.new),
     relaySessionProvider.overrideWith(() => session),
     myPubkeyProvider.overrideWithValue('assignee'),
+    cosFollowUpBridgePubkeyProvider.overrideWithValue(
+      const AsyncData('bridge'),
+    ),
     cosFollowUpNotificationSinkProvider.overrideWithValue(sink),
   ],
 );

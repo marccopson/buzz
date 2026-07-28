@@ -169,6 +169,12 @@ pub struct Config {
     /// skipped — a typo must not silently disable an operator.
     pub relay_operator_pubkeys: Vec<String>,
 
+    /// Exact bridge identity trusted to author Contractor OS follow-up state.
+    ///
+    /// Unset disables the feature and all COS follow-up ingest fails closed.
+    /// Set via `BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY` as lowercase 64-hex.
+    pub cos_follow_up_bridge_pubkey: Option<String>,
+
     /// Allow NIP-OA owner attestation for relay membership.
     ///
     /// When `true` and `require_relay_membership` is also `true`, agents
@@ -581,6 +587,29 @@ impl Config {
             ));
         }
 
+        let cos_follow_up_bridge_pubkey = match std::env::var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY") {
+            Ok(raw) => {
+                if raw.is_empty()
+                    || raw.len() != 64
+                    || !raw
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                {
+                    return Err(ConfigError::InvalidValue(
+                            "BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY must be exactly 64 lowercase hex characters"
+                                .to_string(),
+                        ));
+                }
+                Some(raw)
+            }
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err(ConfigError::InvalidValue(
+                    "BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY must be valid UTF-8".to_string(),
+                ));
+            }
+        };
+
         let auth = buzz_auth::AuthConfig {
             rate_limits: rate_limit_config_from_env()?,
         };
@@ -897,6 +926,7 @@ impl Config {
             relay_owner_pubkey,
             relay_operator_api_origin,
             relay_operator_pubkeys,
+            cos_follow_up_bridge_pubkey,
             allow_nip_oa_auth,
             media,
             media_max_concurrent_uploads,
@@ -1171,6 +1201,49 @@ mod tests {
             result,
             Err(ConfigError::InvalidValue(ref msg)) if msg.contains("RELAY_OPERATOR_API_ORIGIN is required")
         ));
+    }
+
+    #[test]
+    fn cos_follow_up_bridge_pubkey_is_optional_but_strict_when_present() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let previous = std::env::var_os("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY");
+
+        std::env::remove_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY");
+        assert_eq!(
+            Config::from_env()
+                .expect("unset authority is a disabled feature")
+                .cos_follow_up_bridge_pubkey,
+            None
+        );
+
+        std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", "a".repeat(64));
+        assert_eq!(
+            Config::from_env()
+                .expect("valid authority")
+                .cos_follow_up_bridge_pubkey
+                .as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+
+        for invalid in [
+            String::new(),
+            "abc".to_string(),
+            "A".repeat(64),
+            "g".repeat(64),
+            format!(" {}", "a".repeat(64)),
+        ] {
+            std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", &invalid);
+            assert!(
+                Config::from_env().is_err(),
+                "invalid authority must fail startup: {invalid:?}"
+            );
+        }
+
+        if let Some(value) = previous {
+            std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", value);
+        } else {
+            std::env::remove_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY");
+        }
     }
 
     #[test]

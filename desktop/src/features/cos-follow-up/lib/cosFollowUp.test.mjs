@@ -16,13 +16,14 @@ const channel = "550e8400-e29b-41d4-a716-446655440000";
 
 function itemEvent({
   eventId = "1".repeat(64),
+  author = "b".repeat(64),
   state = "needs-answer",
   version = 1,
   actions = ["answer"],
 } = {}) {
   return {
     id: eventId,
-    pubkey: "b".repeat(64),
+    pubkey: author,
     created_at: version,
     kind: 37010,
     tags: [
@@ -90,10 +91,32 @@ test("projection keeps the highest authoritative version", () => {
       }),
     ],
     pubkey,
+    "b".repeat(64),
   );
   assert.equal(latest.length, 1);
   assert.equal(latest[0].version, 2);
   assert.equal(latest[0].state, "ready-to-check");
+});
+
+test("projection ignores a higher version outside the trusted bridge mapping", () => {
+  const trustedBridge = "b".repeat(64);
+  const latest = projectLatestCosFollowUpItems(
+    [
+      itemEvent({ author: trustedBridge, version: 2 }),
+      itemEvent({
+        author: "d".repeat(64),
+        eventId: "9".repeat(64),
+        state: "ready-to-check",
+        version: 99,
+        actions: ["confirm", "reject"],
+      }),
+    ],
+    pubkey,
+    trustedBridge,
+  );
+  assert.equal(latest.length, 1);
+  assert.equal(latest[0].authorPubkey, trustedBridge);
+  assert.equal(latest[0].version, 2);
 });
 
 test("permissions and command tags bind the exact item version", () => {

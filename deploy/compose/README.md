@@ -32,6 +32,11 @@ keypair.
   and S3 secrets stable across restarts.
 - `RELAY_OWNER_PUBKEY` is intentionally not prefixed with `BUZZ_`; it must be a
   64-character hex Nostr pubkey when closed relay mode is enabled.
+- `BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY`, when enabled, must be the exact
+  64-character lowercase-hex public key derived from the COS bridge's protected
+  `BUZZ_PRIVATE_KEY`. Unset disables COS follow-up; blank, uppercase, or
+  malformed present values fail relay startup. The accepted authority is
+  advertised by NIP-11 as `cos_follow_up`.
 - `BUZZ_AUTO_MIGRATE` is opt-in. Set `BUZZ_AUTO_MIGRATE=true` or run
   `buzz-admin migrate` before starting the relay when bootstrapping a fresh
   database. Auto-migration requires an image that includes embedded SQLx

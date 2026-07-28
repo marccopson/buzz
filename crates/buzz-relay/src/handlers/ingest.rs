@@ -1882,25 +1882,45 @@ async fn ingest_event_inner(
         if let Some(follow_up) = &cos_follow_up {
             use buzz_core::cos_follow_up::FollowUpEvent;
 
-            if matches!(
+            let is_authoritative = matches!(
                 follow_up,
                 FollowUpEvent::Item(_) | FollowUpEvent::Receipt(_) | FollowUpEvent::Remove(_)
+            );
+            let trusted_bridge = state
+                .config
+                .cos_follow_up_bridge_pubkey
+                .as_deref()
+                .ok_or_else(|| {
+                    IngestError::AuthFailed(
+                        "restricted: COS follow-up authority is not configured".into(),
+                    )
+                })?;
+            let trusted_bridge_bytes = hex::decode(trusted_bridge).map_err(|_| {
+                IngestError::Internal(
+                    "error: configured COS follow-up bridge pubkey is invalid".into(),
+                )
+            })?;
+            let bridge_role = state
+                .db
+                .get_member_role(tenant.community(), ch_id, &trusted_bridge_bytes)
+                .await
+                .map_err(|error| {
+                    IngestError::Internal(format!(
+                        "error: checking configured COS follow-up bridge role: {error}"
+                    ))
+                })?;
+            if !cos_follow_up_actor_authorized(
+                is_authoritative,
+                &event.pubkey.to_hex(),
+                Some(trusted_bridge),
+                bridge_role.as_deref(),
             ) {
-                let role = state
-                    .db
-                    .get_member_role(tenant.community(), ch_id, &pubkey_bytes)
-                    .await
-                    .map_err(|error| {
-                        IngestError::Internal(format!(
-                            "error: checking COS follow-up bridge role: {error}"
-                        ))
-                    })?;
-                if role.as_deref() != Some("owner") {
-                    return Err(IngestError::AuthFailed(
-                        "restricted: COS follow-up items and receipts must be bridge-owner signed"
-                            .into(),
-                    ));
-                }
+                let message = if bridge_role.as_deref() != Some("owner") {
+                    "restricted: COS follow-up channel is not owned by the configured bridge"
+                } else {
+                    "restricted: COS follow-up state must be signed by the configured bridge"
+                };
+                return Err(IngestError::AuthFailed(message.into()));
             }
 
             if let FollowUpEvent::Item(item) = follow_up {
@@ -2625,6 +2645,18 @@ async fn ingest_event_inner(
     })
 }
 
+fn cos_follow_up_actor_authorized(
+    is_authoritative: bool,
+    actor_pubkey: &str,
+    trusted_bridge_pubkey: Option<&str>,
+    channel_bridge_role: Option<&str>,
+) -> bool {
+    trusted_bridge_pubkey.is_some_and(|trusted| {
+        channel_bridge_role == Some("owner")
+            && (!is_authoritative || actor_pubkey.eq_ignore_ascii_case(trusted))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -2790,6 +2822,26 @@ mod tests {
             );
             assert!(!is_global_only_kind(kind));
         }
+    }
+
+    #[test]
+    fn cos_follow_up_authority_rejects_a_competing_private_channel_owner() {
+        let trusted_bridge = "a".repeat(64);
+        let malicious_owner = "b".repeat(64);
+
+        assert!(
+            !cos_follow_up_actor_authorized(
+                true,
+                &malicious_owner,
+                Some(&trusted_bridge),
+                Some("owner"),
+            ),
+            "owner role alone must not authorise an authoritative COS event"
+        );
+        assert!(
+            !cos_follow_up_actor_authorized(true, &trusted_bridge, None, Some("owner")),
+            "missing relay authority must fail closed"
+        );
     }
 
     #[test]

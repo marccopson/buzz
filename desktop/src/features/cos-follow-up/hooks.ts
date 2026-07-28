@@ -19,6 +19,7 @@ import type { Community } from "@/features/communities/types";
 import { sendDesktopNotification } from "@/features/notifications/lib/desktop";
 import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
+import { getCosFollowUpBridgePubkey } from "@/shared/api/tauriIdentityArchive";
 import type { RelayEvent } from "@/shared/api/types";
 import {
   KIND_COS_FOLLOW_UP_ITEM,
@@ -36,6 +37,14 @@ export const cosFollowUpQueryKey = (pubkey: string, communityScope = "") =>
 const NOTIFICATION_STORAGE_PREFIX = "buzz.cos-follow-up.seen.v1";
 const RECEIPT_WAIT_MS = 45_000;
 const RECEIPT_POLL_MS = 750;
+
+async function fetchCosFollowUpAuthority() {
+  try {
+    return await getCosFollowUpBridgePubkey();
+  } catch {
+    return null;
+  }
+}
 
 function notificationStorageKey(pubkey: string, communityScope: string) {
   return `${NOTIFICATION_STORAGE_PREFIX}:${communityScope}:${pubkey.toLowerCase()}`;
@@ -69,21 +78,30 @@ function saveSeen(
   );
 }
 
-async function fetchItems(pubkey: string) {
+async function fetchItems(pubkey: string, trustedBridgePubkey: string) {
   const events = await relayClient.fetchEvents({
     kinds: [KIND_COS_FOLLOW_UP_ITEM],
+    authors: [trustedBridgePubkey],
     "#p": [pubkey.toLowerCase()],
     limit: 500,
   });
-  return projectLatestCosFollowUpItems(events, pubkey);
+  return projectLatestCosFollowUpItems(events, pubkey, trustedBridgePubkey);
 }
 
 export function useCosFollowUpQuery(pubkey?: string, communityScope = "") {
   const normalizedPubkey = pubkey?.trim().toLowerCase() ?? "";
+  const authority = useQuery({
+    queryKey: ["cos-follow-up-authority", communityScope],
+    queryFn: fetchCosFollowUpAuthority,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
   return useQuery({
     queryKey: cosFollowUpQueryKey(normalizedPubkey, communityScope),
-    queryFn: () => fetchItems(normalizedPubkey),
-    enabled: normalizedPubkey.length > 0,
+    queryFn: () =>
+      authority.data
+        ? fetchItems(normalizedPubkey, authority.data)
+        : Promise.resolve([]),
+    enabled: normalizedPubkey.length > 0 && authority.isSuccess,
     staleTime: 15_000,
     refetchInterval: 60_000,
   });
@@ -99,6 +117,12 @@ export function useCosFollowUpQuery(pubkey?: string, communityScope = "") {
 export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
   const normalizedPubkey = pubkey?.trim().toLowerCase() ?? "";
   const queryClient = useQueryClient();
+  const authority = useQuery({
+    queryKey: ["cos-follow-up-authority", communityScope],
+    queryFn: fetchCosFollowUpAuthority,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+  const trustedBridgePubkey = authority.data ?? "";
   const query = useCosFollowUpQuery(normalizedPubkey, communityScope);
   const initializedRef = React.useRef(false);
   const seenRef = React.useRef<Record<string, SeenActionableItem>>({});
@@ -134,6 +158,7 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
   }, [communityScope, normalizedPubkey, query.data]);
 
   const handleItem = React.useEffectEvent((event: RelayEvent) => {
+    if (event.pubkey.toLowerCase() !== trustedBridgePubkey) return;
     let item: CosFollowUpItem;
     try {
       item = parseCosFollowUpItem(event, normalizedPubkey);
@@ -176,6 +201,7 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
   });
 
   const handleRemoval = React.useEffectEvent((event: RelayEvent) => {
+    if (event.pubkey.toLowerCase() !== trustedBridgePubkey) return;
     let removal: ReturnType<typeof parseCosFollowUpRemoval>;
     try {
       removal = parseCosFollowUpRemoval(event);
@@ -201,13 +227,16 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
   });
 
   React.useEffect(() => {
-    if (normalizedPubkey.length === 0) return;
+    if (normalizedPubkey.length === 0 || trustedBridgePubkey.length === 0) {
+      return;
+    }
     let disposed = false;
     const unsubscribers: Array<() => Promise<void>> = [];
     const subscriptions = [
       relayClient.subscribeLive(
         {
           kinds: [KIND_COS_FOLLOW_UP_ITEM],
+          authors: [trustedBridgePubkey],
           "#p": [normalizedPubkey],
           limit: 0,
         },
@@ -217,6 +246,7 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
         relayClient.subscribeLive(
           {
             kinds: [KIND_DELETION],
+            authors: [trustedBridgePubkey],
             "#h": [channelId],
             limit: 0,
           },
@@ -247,7 +277,13 @@ export function useCosFollowUpSync(pubkey?: string, communityScope = "") {
         void unsubscribe().catch(() => {});
       }
     };
-  }, [communityScope, deletionChannelScope, normalizedPubkey, queryClient]);
+  }, [
+    communityScope,
+    deletionChannelScope,
+    normalizedPubkey,
+    queryClient,
+    trustedBridgePubkey,
+  ]);
 }
 
 export function useCosFollowUpCommunitySync(
@@ -283,12 +319,17 @@ async function fetchCommandReceipt(
 ) {
   const receipts = await relayClient.fetchEvents({
     kinds: [KIND_COS_FOLLOW_UP_RECEIPT],
+    authors: [item.authorPubkey],
     "#h": [item.channelId],
     "#e": [commandId],
     limit: 20,
   });
   return receipts
-    .filter((event) => event.id !== ignoredReceiptId)
+    .filter(
+      (event) =>
+        event.id !== ignoredReceiptId &&
+        event.pubkey.toLowerCase() === item.authorPubkey.toLowerCase(),
+    )
     .sort(
       (left, right) =>
         right.created_at - left.created_at || left.id.localeCompare(right.id),
@@ -336,7 +377,7 @@ async function waitForAuthoritativeItem({
         receipt,
         action,
         itemId: item.id,
-        items: await fetchItems(pubkey),
+        items: await fetchItems(pubkey, item.authorPubkey),
       });
       if (projection.status === "updated") return projection.item;
       if (projection.status === "removed") return null;
@@ -384,7 +425,7 @@ export async function submitCosFollowUpAction({
         receipt: reconciled,
         action,
         itemId: item.id,
-        items: await fetchItems(pubkey),
+        items: await fetchItems(pubkey, item.authorPubkey),
       });
       if (projection.status === "updated") return projection.item;
       if (projection.status === "removed") return null;

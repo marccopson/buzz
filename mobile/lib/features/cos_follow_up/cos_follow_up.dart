@@ -272,10 +272,13 @@ class CosFollowUpItem {
 
 List<CosFollowUpItem> projectLatestCosFollowUpItems(
   Iterable<NostrEvent> events,
-  String assignee,
-) {
+  String assignee, {
+  required String trustedBridgePubkey,
+}) {
+  final trustedAuthor = trustedBridgePubkey.toLowerCase();
   final latest = <String, CosFollowUpItem>{};
   for (final event in events) {
+    if (event.pubkey.toLowerCase() != trustedAuthor) continue;
     try {
       final item = CosFollowUpItem.fromEvent(event, expectedAssignee: assignee);
       final current = latest[item.id];

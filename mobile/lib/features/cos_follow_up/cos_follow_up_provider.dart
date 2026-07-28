@@ -6,6 +6,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../../shared/relay/relay.dart';
 import '../../shared/theme/theme_provider.dart';
 import 'cos_follow_up.dart';
+import 'cos_follow_up_authority.dart';
 import 'cos_follow_up_notification_service.dart';
 
 class CosFollowUpActionError {
@@ -115,6 +116,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   void Function()? _unsubscribeRemovals;
   String _pubkey = '';
   String _relayScope = '';
+  String _trustedBridgePubkey = '';
   final _seen = <String, SeenCosFollowUp>{};
   final _pendingNotifications = <String, _PendingCosFollowUpNotification>{};
   final _deliveryInFlight = <String>{};
@@ -125,14 +127,32 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   CosFollowUpViewState build() {
     final pubkey = ref.watch(myPubkeyProvider)?.trim().toLowerCase() ?? '';
     final relayScope = ref.watch(relayConfigProvider).baseUrl;
+    final authority = ref.watch(cosFollowUpBridgePubkeyProvider);
+    final trustedBridgePubkey = authority.value?.trim().toLowerCase() ?? '';
     ref.onDispose(_disposeSubscriptions);
     if (pubkey.isEmpty) {
       _pubkey = '';
+      _trustedBridgePubkey = '';
+      _disposeSubscriptions();
       return const CosFollowUpViewState(items: [], loading: false);
     }
-    if (_pubkey != pubkey || _relayScope != relayScope) {
+    if (authority.isLoading) {
+      _disposeSubscriptions();
+      return const CosFollowUpViewState(items: [], loading: true);
+    }
+    if (trustedBridgePubkey.isEmpty) {
       _pubkey = pubkey;
       _relayScope = relayScope;
+      _trustedBridgePubkey = '';
+      _disposeSubscriptions();
+      return const CosFollowUpViewState(items: [], loading: false);
+    }
+    if (_pubkey != pubkey ||
+        _relayScope != relayScope ||
+        _trustedBridgePubkey != trustedBridgePubkey) {
+      _pubkey = pubkey;
+      _relayScope = relayScope;
+      _trustedBridgePubkey = trustedBridgePubkey;
       _notificationGeneration++;
       _seen
         ..clear()
@@ -226,7 +246,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   Future<void> refresh() async {
-    if (_pubkey.isEmpty) return;
+    if (_pubkey.isEmpty || _trustedBridgePubkey.isEmpty) return;
     state = state.copyWith(loading: state.items.isEmpty, clearLoadError: true);
     try {
       final events = await ref
@@ -234,13 +254,18 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
           .fetchHistory(
             NostrFilter(
               kinds: const [EventKind.cosFollowUpItem],
+              authors: [_trustedBridgePubkey],
               tags: {
                 '#p': [_pubkey],
               },
               limit: 500,
             ),
           );
-      final items = projectLatestCosFollowUpItems(events, _pubkey);
+      final items = projectLatestCosFollowUpItems(
+        events,
+        _pubkey,
+        trustedBridgePubkey: _trustedBridgePubkey,
+      );
       for (final item in items) {
         final pending = _pendingNotifications[item.id];
         if (item.state != CosFollowUpState.confirmed && pending != null) {
@@ -273,6 +298,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     _unsubscribeItems = await session.subscribe(
       NostrFilter(
         kinds: const [EventKind.cosFollowUpItem],
+        authors: [_trustedBridgePubkey],
         tags: {
           '#p': [_pubkey],
         },
@@ -284,6 +310,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
       _unsubscribeRemovals = await session.subscribe(
         NostrFilter(
           kinds: const [EventKind.deletion],
+          authors: [_trustedBridgePubkey],
           tags: {'#h': channelIds.toList()},
           limit: 0,
         ),
@@ -300,52 +327,60 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   void _handleLiveItem(NostrEvent event) {
+    if (event.pubkey.toLowerCase() != _trustedBridgePubkey) return;
     CosFollowUpItem item;
     try {
       item = CosFollowUpItem.fromEvent(event, expectedAssignee: _pubkey);
     } on FormatException {
       return;
     }
-    final prior = _seen[item.id];
     final existingChannels = state.items
         .map((value) => value.channelId)
         .toSet();
-    state = state.copyWith(
-      items: projectLatestCosFollowUpItems([
-        for (final current in state.items) _eventProjection(current),
-        event,
-      ], _pubkey),
+    CosFollowUpItem? retained;
+    final projectedItems = projectLatestCosFollowUpItems(
+      [for (final current in state.items) _eventProjection(current), event],
+      _pubkey,
+      trustedBridgePubkey: _trustedBridgePubkey,
     );
-    final pending = _pendingNotifications[item.id];
-    if (item.state == CosFollowUpState.confirmed) {
-      _pendingNotifications.remove(item.id);
-      _seen[item.id] = SeenCosFollowUp(
-        eventId: item.eventId,
-        state: item.state.wireValue,
+    for (final projected in projectedItems) {
+      if (projected.id == item.id) {
+        retained = projected;
+        break;
+      }
+    }
+    state = state.copyWith(items: projectedItems);
+    if (retained == null || retained.eventId != item.eventId) return;
+
+    final prior = _seen[retained.id];
+    final pending = _pendingNotifications[retained.id];
+    if (retained.state == CosFollowUpState.confirmed) {
+      _pendingNotifications.remove(retained.id);
+      _seen[retained.id] = SeenCosFollowUp(
+        eventId: retained.eventId,
+        state: retained.state.wireValue,
       );
       unawaited(_saveNotificationState());
     } else if (pending != null) {
-      _pendingNotifications[item.id] = _PendingCosFollowUpNotification.fromItem(
-        item,
-      );
+      _pendingNotifications[retained.id] =
+          _PendingCosFollowUpNotification.fromItem(retained);
       unawaited(_savePendingNotifications());
-      if (pending.state != item.state.wireValue) {
-        _queuePendingDelivery(item.id);
+      if (pending.state != retained.state.wireValue) {
+        _queuePendingDelivery(retained.id);
       }
-    } else if (isNewlyActionableTransition(prior, item)) {
-      _pendingNotifications[item.id] = _PendingCosFollowUpNotification.fromItem(
-        item,
-      );
-      unawaited(_persistAndQueuePendingDelivery(item.id));
+    } else if (isNewlyActionableTransition(prior, retained)) {
+      _pendingNotifications[retained.id] =
+          _PendingCosFollowUpNotification.fromItem(retained);
+      unawaited(_persistAndQueuePendingDelivery(retained.id));
     } else {
-      _seen[item.id] = SeenCosFollowUp(
-        eventId: item.eventId,
-        state: item.state.wireValue,
+      _seen[retained.id] = SeenCosFollowUp(
+        eventId: retained.eventId,
+        state: retained.state.wireValue,
       );
       unawaited(_saveSeen());
     }
-    if (!existingChannels.contains(item.channelId)) {
-      unawaited(_subscribe({...existingChannels, item.channelId}));
+    if (!existingChannels.contains(retained.channelId)) {
+      unawaited(_subscribe({...existingChannels, retained.channelId}));
     }
   }
 
@@ -394,7 +429,10 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   );
 
   void _handleRemoval(NostrEvent event) {
-    if (event.kind != EventKind.deletion) return;
+    if (event.kind != EventKind.deletion ||
+        event.pubkey.toLowerCase() != _trustedBridgePubkey) {
+      return;
+    }
     final channel = _exactTag(event, 'h');
     final itemId = _exactTag(event, 'item');
     final target = _exactTag(event, 'e');
@@ -580,6 +618,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         .fetchHistory(
           NostrFilter(
             kinds: const [EventKind.cosFollowUpReceipt],
+            authors: [_trustedBridgePubkey],
             tags: {
               '#h': [attempt.item.channelId],
               '#e': [attempt.event.id],
@@ -594,6 +633,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     );
     for (final event in events) {
       if (event.id == ignoredReceiptId) continue;
+      if (event.pubkey.toLowerCase() != _trustedBridgePubkey) continue;
       try {
         final receipt = CosFollowUpReceipt.fromEvent(event);
         if (receipt.commandEventId == attempt.event.id) return receipt;
@@ -642,13 +682,18 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         .fetchHistory(
           NostrFilter(
             kinds: const [EventKind.cosFollowUpItem],
+            authors: [_trustedBridgePubkey],
             tags: {
               '#p': [_pubkey],
             },
             limit: 500,
           ),
         );
-    final items = projectLatestCosFollowUpItems(events, _pubkey);
+    final items = projectLatestCosFollowUpItems(
+      events,
+      _pubkey,
+      trustedBridgePubkey: _trustedBridgePubkey,
+    );
     final current = items
         .where((item) => item.id == attempt.item.id)
         .firstOrNull;

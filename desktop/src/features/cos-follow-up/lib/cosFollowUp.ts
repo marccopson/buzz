@@ -268,9 +268,12 @@ export function parseCosFollowUpItem(
 export function projectLatestCosFollowUpItems(
   events: RelayEvent[],
   assigneePubkey: string,
+  trustedBridgePubkey: string,
 ): CosFollowUpItem[] {
+  const trustedAuthor = trustedBridgePubkey.toLowerCase();
   const latest = new Map<string, CosFollowUpItem>();
   for (const event of events) {
+    if (event.pubkey.toLowerCase() !== trustedAuthor) continue;
     let item: CosFollowUpItem;
     try {
       item = parseCosFollowUpItem(event, assigneePubkey);

@@ -292,6 +292,10 @@ type E2eConfig = {
     // equals this is treated as a moderation DM (composer disabled). Absent →
     // fail open (no mod-DM detection), matching the Rust command's contract.
     relaySelf?: string | null;
+    /** Exact COS bridge authority returned by the mocked NIP-11 command.
+     * Undefined keeps the established trusted mock identity default; null
+     * explicitly disables the feature. */
+    cosFollowUpBridgePubkey?: string | null;
     oaOwnerIsMe?: boolean;
     /** Whether the mock relay advertises NIP-43 membership support. Defaults to false. */
     relayRequiresMembership?: boolean;
@@ -854,6 +858,8 @@ const GLOBAL_MOCK_SUBSCRIPTION = "*";
 type MockSubscription = {
   channelId: string;
   kinds: number[] | null;
+  /** Exact event authors from the REQ filters, if any. */
+  authors: string[];
   /** `#p` values from the REQ filters, if any — lets specs assert an
    *  owner-scoped live subscription (e.g. the observer-archive `24200`
    *  reconciliation gate) independently of channel-scoped ones. */
@@ -3830,6 +3836,8 @@ function emitMockLiveEvent(channelId: string, event: RelayEvent) {
         (subscription.channelId === channelId ||
           subscription.channelId === GLOBAL_MOCK_SUBSCRIPTION) &&
         (!subscription.kinds || subscription.kinds.includes(event.kind)) &&
+        (subscription.authors.length === 0 ||
+          subscription.authors.includes(event.pubkey.toLowerCase())) &&
         (subscription.ownerPubkeys.length === 0 ||
           event.tags.some(
             (tag) =>
@@ -8792,12 +8800,16 @@ function sendToMockSocket(args: {
       // Collect channel IDs from all filters in the REQ
       const channelIds = new Set<string>();
       const kinds = new Set<number>();
+      const authors = new Set<string>();
       const ownerPubkeys = new Set<string>();
       for (const f of filters) {
         const cid = f["#h"]?.[0];
         if (cid) channelIds.add(cid);
         for (const kind of f.kinds ?? []) {
           kinds.add(kind);
+        }
+        for (const author of f.authors ?? []) {
+          authors.add(author.toLowerCase());
         }
         for (const p of f["#p"] ?? []) {
           ownerPubkeys.add(p);
@@ -8820,6 +8832,7 @@ function sendToMockSocket(args: {
       socket.subscriptions.set(subId, {
         channelId: onlyChannelId ?? GLOBAL_MOCK_SUBSCRIPTION,
         kinds: kinds.size > 0 ? [...kinds] : null,
+        authors: [...authors],
         ownerPubkeys: [...ownerPubkeys],
       });
       sendWsText(socket.handler, ["EOSE", subId]);
@@ -8880,11 +8893,15 @@ function sendToMockSocket(args: {
 
     if (filter.kinds?.includes(37010) && (filter["#p"]?.length ?? 0) > 0) {
       const assignees = new Set(filter["#p"]);
+      const authors = new Set(
+        (filter.authors ?? []).map((author) => author.toLowerCase()),
+      );
       const events = [...mockMessages.values()]
         .flat()
         .filter(
           (event) =>
             event.kind === 37010 &&
+            (authors.size === 0 || authors.has(event.pubkey.toLowerCase())) &&
             event.tags.some(
               (tag) => tag[0] === "p" && tag[1] && assignees.has(tag[1]),
             ),
@@ -11078,6 +11095,10 @@ export function maybeInstallE2eTauriMocks() {
           );
         }
         return activeConfig?.mock?.relaySelf ?? null;
+      case "get_cos_follow_up_bridge_pubkey":
+        return activeConfig?.mock?.cosFollowUpBridgePubkey === undefined
+          ? DEFAULT_MOCK_IDENTITY.pubkey
+          : activeConfig.mock.cosFollowUpBridgePubkey;
       case "archive_identity":
       case "unarchive_identity":
         // The spec only verifies UI state, not the submitted request shape;

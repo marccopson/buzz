@@ -1,19 +1,45 @@
 import 'dart:convert';
 
 import 'package:buzz/features/cos_follow_up/cos_follow_up.dart';
+import 'package:buzz/features/cos_follow_up/cos_follow_up_authority.dart';
 import 'package:buzz/shared/relay/relay.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
+  test('accepts only the exact NIP-11 bridge authority descriptor', () {
+    final bridge = 'a' * 64;
+    final authority = <String, Object>{
+      'schema': cosFollowUpAuthoritySchema,
+      'bridge_pubkey': bridge,
+      'channel_mapping': cosFollowUpChannelMapping,
+    };
+    final document = {'cos_follow_up': authority};
+
+    expect(parseCosFollowUpBridgePubkey(document), bridge);
+    expect(
+      parseCosFollowUpBridgePubkey({
+        'cos_follow_up': {...authority, 'bridge_pubkey': 'A' * 64},
+      }),
+      isNull,
+    );
+    expect(
+      parseCosFollowUpBridgePubkey({
+        'cos_follow_up': {...authority, 'channel_mapping': 'untrusted'},
+      }),
+      isNull,
+    );
+  });
+
   NostrEvent itemEvent({
     String eventId = 'event-1',
     String itemId = 'item-1',
+    String author = 'bridge',
     String state = 'needs-answer',
     int version = 3,
     List<String> actions = const ['answer'],
   }) => NostrEvent(
     id: eventId,
-    pubkey: 'bridge',
+    pubkey: author,
     createdAt: version,
     kind: EventKind.cosFollowUpItem,
     tags: [
@@ -83,11 +109,38 @@ void main() {
       ),
     ];
 
-    final result = projectLatestCosFollowUpItems(events, 'assignee');
+    final result = projectLatestCosFollowUpItems(
+      events,
+      'assignee',
+      trustedBridgePubkey: 'bridge',
+    );
 
     expect(result, hasLength(1));
     expect(result.single.eventId, 'newer');
     expect(result.single.state, CosFollowUpState.readyToCheck);
+  });
+
+  test('projects only the trusted bridge and signed channel mapping', () {
+    final events = [
+      itemEvent(eventId: 'trusted', version: 3),
+      itemEvent(
+        eventId: 'forged',
+        author: 'malicious-owner',
+        state: 'ready-to-check',
+        version: 99,
+        actions: const ['confirm', 'reject'],
+      ),
+    ];
+
+    final result = projectLatestCosFollowUpItems(
+      events,
+      'assignee',
+      trustedBridgePubkey: 'bridge',
+    );
+
+    expect(result, hasLength(1));
+    expect(result.single.authorPubkey, 'bridge');
+    expect(result.single.eventId, 'trusted');
   });
 
   test('command pins the expected version and current item event', () {

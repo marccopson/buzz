@@ -788,6 +788,7 @@ pub fn run() {
             unarchive_identity,
             list_archived_identities,
             get_relay_self,
+            get_cos_follow_up_bridge_pubkey,
             resolve_oa_owner,
             list_relay_agents,
             list_managed_agents,
