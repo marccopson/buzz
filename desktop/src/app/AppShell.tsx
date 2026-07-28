@@ -97,6 +97,7 @@ import { useMessageDeepLinks } from "@/shared/useMessageDeepLinks";
 import { SidebarInset, SidebarProvider } from "@/shared/ui/sidebar";
 import { RelayConnectionOverlay } from "@/app/RelayConnectionOverlay";
 import { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
+
 const LazySettingsScreen = React.lazy(async () => {
   const module = await import("@/features/settings/ui/SettingsScreen");
   return { default: module.SettingsScreen };
@@ -106,7 +107,6 @@ export function AppShell() {
   useWebviewZoomShortcuts();
   useTauriWindowDrag();
   useWebviewScrollBoundaryLock();
-
   const communitiesHook = useCommunities();
   const hasCommunityRail = communitiesHook.communities.length > 1;
   const addCommunityDialog = useAddCommunityDialogState();
