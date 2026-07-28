@@ -1,6 +1,6 @@
 name: Docker image
 
-# Builds and publishes the public Buzz relay image as ghcr.io/block/buzz.
+# Builds and publishes the MAC Workspace relay image as ghcr.io/marccopson/buzz.
 #
 # Strategy: each architecture builds on its native runner (ubuntu-24.04 for
 # amd64, ubuntu-24.04-arm for arm64), pushes to GHCR by digest, then a final
@@ -14,7 +14,7 @@ name: Docker image
 # the relay image version tracks crates/buzz-relay/Cargo.toml, never desktop.
 #
 # Triggers:
-#   - push to main           → :main + :sha-<7>
+#   - push to main or mac    → :<branch> + :sha-<40>
 #   - push tags relay-v*.*.* → :{version} + :{major}.{minor} + :{major}
 #                              (+ :latest for stable, NOT for prereleases)
 #   - pull_request           → build only (no push), cache stays warm
@@ -37,7 +37,7 @@ name: Docker image
 
 on:
   push:
-    branches: [main]
+    branches: [main, mac]
     tags: ["relay-v[0-9]*"]
   pull_request:
     paths:
@@ -72,7 +72,7 @@ env:
   # Single source of truth for the image name. Set GHCR_IMAGE as a repo
   # variable to override (e.g., for forks that want to push to their own
   # namespace without forking this file).
-  IMAGE_NAME: ${{ vars.GHCR_IMAGE != '' && vars.GHCR_IMAGE || 'ghcr.io/block/buzz' }}
+  IMAGE_NAME: ${{ vars.GHCR_IMAGE != '' && vars.GHCR_IMAGE || 'ghcr.io/marccopson/buzz' }}
 
 jobs:
   build:
@@ -154,7 +154,7 @@ jobs:
           # prereleases, not main pushes).
           tags: |
             type=ref,event=branch,enable=${{ github.event_name != 'workflow_dispatch' || inputs.version == '' }}
-            type=sha,prefix=sha-,format=short,enable=${{ github.event_name != 'workflow_dispatch' || inputs.version == '' }}
+            type=raw,value=sha-${{ github.sha }},enable=${{ github.event_name != 'workflow_dispatch' || inputs.version == '' }}
             type=semver,pattern={{version}},match=^relay-v(.*)$,value=${{ inputs.version }}
             type=semver,pattern={{major}}.{{minor}},match=^relay-v(.*)$,value=${{ inputs.version }}
             type=semver,pattern={{major}},match=^relay-v(.*)$,value=${{ inputs.version }}
@@ -239,7 +239,7 @@ jobs:
           # and why :latest is left to flavor.latest=auto.
           tags: |
             type=ref,event=branch,enable=${{ github.event_name != 'workflow_dispatch' || inputs.version == '' }}
-            type=sha,prefix=sha-,format=short,enable=${{ github.event_name != 'workflow_dispatch' || inputs.version == '' }}
+            type=raw,value=sha-${{ github.sha }},enable=${{ github.event_name != 'workflow_dispatch' || inputs.version == '' }}
             type=semver,pattern={{version}},match=^relay-v(.*)$,value=${{ inputs.version }}
             type=semver,pattern={{major}}.{{minor}},match=^relay-v(.*)$,value=${{ inputs.version }}
             type=semver,pattern={{major}},match=^relay-v(.*)$,value=${{ inputs.version }}
@@ -274,7 +274,7 @@ jobs:
 
       - name: Attest provenance for the merged image
         # Sigstore-signed in-toto attestation, verifiable with:
-        #   gh attestation verify oci://ghcr.io/block/buzz:<tag> --owner block
+        #   gh attestation verify oci://<image>:<tag> --owner <repository-owner>
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
           subject-name: ${{ env.IMAGE_NAME }}
@@ -299,12 +299,13 @@ jobs:
             echo
             echo "Verify provenance:"
             echo '```'
-            echo "gh attestation verify oci://${IMAGE_NAME}@${MERGED_DIGEST} --owner block"
+            echo "gh attestation verify oci://${IMAGE_NAME}@${MERGED_DIGEST} --owner ${GITHUB_REPOSITORY_OWNER}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
   push-gateway-build:
     name: Build public push gateway (${{ matrix.platform }})
+    if: github.repository == 'block/buzz'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -382,7 +383,7 @@ jobs:
 
   push-gateway-merge:
     name: Publish public push gateway image
-    if: github.event_name != 'pull_request'
+    if: github.repository == 'block/buzz' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     needs: push-gateway-build
     timeout-minutes: 15
