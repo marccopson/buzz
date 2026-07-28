@@ -285,6 +285,72 @@ test("production CLOSED handler removes terminal live subscriptions", () => {
   assert.equal(readyCalls, 1);
 });
 
+test("strict live subscription stays pending across retryable CLOSED", () => {
+  let readyCalls = 0;
+  let rejected = null;
+  const subscriptions = new Map([
+    [
+      "live-strict",
+      {
+        mode: "live",
+        filter: { kinds: [5], "#h": ["ch-1"], limit: 0 },
+        onEvent: () => {},
+        requireEose: true,
+        resolveReady: () => {
+          readyCalls += 1;
+        },
+        rejectReady: (error) => {
+          rejected = error;
+        },
+      },
+    ],
+  ]);
+
+  handleRelayClosed({
+    subscriptions,
+    subId: "live-strict",
+    message: "error: transient database error",
+    sendReq: () => Promise.resolve(),
+  });
+
+  assert.equal(readyCalls, 0);
+  assert.equal(rejected, null);
+  assert.equal(subscriptions.has("live-strict"), true);
+});
+
+test("strict live subscription rejects terminal CLOSED before EOSE", () => {
+  let readyCalls = 0;
+  let rejected = null;
+  const subscriptions = new Map([
+    [
+      "live-strict",
+      {
+        mode: "live",
+        filter: { kinds: [5], "#h": ["ch-1"], limit: 0 },
+        onEvent: () => {},
+        requireEose: true,
+        resolveReady: () => {
+          readyCalls += 1;
+        },
+        rejectReady: (error) => {
+          rejected = error;
+        },
+      },
+    ],
+  ]);
+
+  handleRelayClosed({
+    subscriptions,
+    subId: "live-strict",
+    message: "restricted: access revoked",
+    sendReq: () => Promise.resolve(),
+  });
+
+  assert.equal(readyCalls, 0);
+  assert.match(rejected?.message ?? "", /access revoked/);
+  assert.equal(subscriptions.has("live-strict"), false);
+});
+
 // ── Rate-limited CLOSED core behaviour (F5) ───────────────────────────────────
 
 test("rate-limited CLOSED keeps live subscription in the map", () => {

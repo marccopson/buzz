@@ -58,7 +58,9 @@ type LiveSubscription = {
   mode: "live";
   filter: RelaySubscriptionFilter;
   onEvent: (event: RelayEvent) => void;
+  requireEose?: boolean;
   resolveReady?: () => void;
+  rejectReady?: (error: Error) => void;
   lastSeenCreatedAt?: number;
   closedRetryAttempt?: number;
   closedRetryTimeout?: number;

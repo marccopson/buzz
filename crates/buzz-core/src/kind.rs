@@ -522,6 +522,15 @@ pub const KIND_WORKFLOW_APPROVAL_GRANTED: u32 = 46011;
 pub const KIND_WORKFLOW_APPROVAL_DENIED: u32 = 46012;
 
 // User groups (47000–47999)
+/// COS follow-up item snapshot (parameterized replaceable, `d` = stable item id).
+///
+/// Bridge-authored inside a private NIP-29 channel. The assignee is carried in
+/// exactly one `p` tag and clients query this kind with `#p = self`.
+pub const KIND_COS_FOLLOW_UP_ITEM: u32 = 37010;
+/// User-authored COS follow-up action command.
+pub const KIND_COS_FOLLOW_UP_COMMAND: u32 = 47010;
+/// Bridge-authored authoritative outcome for a COS follow-up command.
+pub const KIND_COS_FOLLOW_UP_RECEIPT: u32 = 47011;
 
 // System / admin custom range (48000–48999)
 /// An audit log entry was recorded.
@@ -674,6 +683,9 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_WORKFLOW_APPROVAL_REQUESTED,
     KIND_WORKFLOW_APPROVAL_GRANTED,
     KIND_WORKFLOW_APPROVAL_DENIED,
+    KIND_COS_FOLLOW_UP_ITEM,
+    KIND_COS_FOLLOW_UP_COMMAND,
+    KIND_COS_FOLLOW_UP_RECEIPT,
     KIND_AUDIT_ENTRY,
     KIND_HUDDLE_STARTED,
     KIND_HUDDLE_PARTICIPANT_JOINED,
@@ -789,6 +801,9 @@ const _: () = assert!(is_parameterized_replaceable(KIND_EVENT_REMINDER)); // 303
 const _: () = assert!(is_parameterized_replaceable(KIND_DM_VISIBILITY)); // 30622 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_THREAD_SUMMARY)); // 39005 ∈ 30000–39999
 const _: () = assert!(is_parameterized_replaceable(KIND_WINDOW_BOUNDS)); // 39006 ∈ 30000–39999
+const _: () = assert!(is_parameterized_replaceable(KIND_COS_FOLLOW_UP_ITEM)); // 37010 ∈ 30000–39999
+const _: () = assert!(!is_parameterized_replaceable(KIND_COS_FOLLOW_UP_COMMAND));
+const _: () = assert!(!is_parameterized_replaceable(KIND_COS_FOLLOW_UP_RECEIPT));
 
 // Compile-time: NIP-34 parameterized replaceable kinds are in the correct range.
 const _: () = assert!(

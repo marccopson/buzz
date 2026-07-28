@@ -2195,6 +2195,50 @@ mod tests {
         }
 
         #[tokio::test]
+        async fn removed_private_channel_member_is_dropped_from_subsequent_fanout() {
+            let state = test_state().await;
+            let channel_id = Uuid::new_v4();
+            let community_id = buzz_core::tenant::CommunityId::from_uuid(Uuid::nil());
+            state
+                .channel_visibility_cache
+                .insert((community_id, channel_id), "private".to_string());
+
+            let pubkey = vec![7u8; 32];
+            state
+                .membership_cache
+                .insert((community_id, channel_id, pubkey.clone()), true);
+            let connection = register_conn(&state, Some(pubkey.clone()));
+            let matches = vec![(connection, "follow-up".to_string())];
+            assert_eq!(
+                filter_fanout_by_access(
+                    &state,
+                    community_id,
+                    &channel_event(Some(channel_id)),
+                    matches.clone(),
+                    None,
+                )
+                .await,
+                matches,
+            );
+
+            // Channel-member removal invalidates/replaces this cache entry.
+            // The next event must re-check it rather than trusting the live
+            // subscription that was opened while the identity was a member.
+            state
+                .membership_cache
+                .insert((community_id, channel_id, pubkey), false);
+            assert!(filter_fanout_by_access(
+                &state,
+                community_id,
+                &channel_event(Some(channel_id)),
+                matches,
+                None,
+            )
+            .await
+            .is_empty());
+        }
+
+        #[tokio::test]
         async fn author_only_reminder_delivers_to_author_only() {
             let state = test_state().await;
 

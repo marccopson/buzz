@@ -30,10 +30,12 @@ void main() {
     expect(find.text('Activity'), findsNothing);
     expect(find.text('Search'), findsNothing);
     expect(find.text('COS'), findsNothing);
+    expect(find.text('My Actions'), findsNothing);
     expect(find.bySemanticsLabel('Home'), findsOneWidget);
     expect(find.bySemanticsLabel('Activity'), findsOneWidget);
     expect(find.bySemanticsLabel('Search'), findsOneWidget);
     expect(find.bySemanticsLabel('COS'), findsOneWidget);
+    expect(find.bySemanticsLabel('My Actions'), findsOneWidget);
 
     final quickAction = find.byTooltip('Create or start conversation');
     expect(quickAction, findsOneWidget);

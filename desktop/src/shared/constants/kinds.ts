@@ -55,6 +55,10 @@ export const KIND_MANAGED_AGENT = 30177;
 export const KIND_USER_STATUS = 30315;
 export const KIND_AGENT_OBSERVER_FRAME = 24200;
 export const KIND_AGENT_TURN_METRIC = 44200;
+// COS meeting follow-up contract. Keep in sync with buzz-core and mobile.
+export const KIND_COS_FOLLOW_UP_ITEM = 37010;
+export const KIND_COS_FOLLOW_UP_COMMAND = 47010;
+export const KIND_COS_FOLLOW_UP_RECEIPT = 47011;
 export const KIND_EVENT_REMINDER = 30300;
 export const KIND_REPO_ANNOUNCEMENT = 30617;
 export const KIND_REPO_STATE = 30618;

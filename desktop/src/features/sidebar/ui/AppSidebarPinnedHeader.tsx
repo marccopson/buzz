@@ -4,6 +4,7 @@ import {
   FolderGit2,
   Inbox,
   ListChecks,
+  ListTodo,
   Zap,
 } from "lucide-react";
 
@@ -27,7 +28,8 @@ type SidebarSelectedView =
   | "workflows"
   | "pulse"
   | "projects"
-  | "running-order";
+  | "running-order"
+  | "my-actions";
 
 type AppSidebarPinnedHeaderProps = {
   channelLabels: Record<string, string>;
@@ -47,6 +49,7 @@ type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onSelectAgents: () => void;
   onSelectHome: () => void;
+  onSelectMyActions: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
   onSelectRunningOrder: () => void;
@@ -93,6 +96,7 @@ export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onSelectAgents,
   onSelectHome,
+  onSelectMyActions,
   onSelectProjects,
   onSelectPulse,
   onSelectRunningOrder,
@@ -124,6 +128,18 @@ export function AppSidebarPrimaryMenu({
               {Math.min(homeBadgeCount, 99)}
             </SidebarMenuBadge>
           ) : null}
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            data-testid="open-my-actions-view"
+            isActive={selectedView === "my-actions"}
+            onClick={onSelectMyActions}
+            tooltip="My Actions"
+            type="button"
+          >
+            <ListTodo className="h-4 w-4" />
+            <SidebarMenuLabel>My Actions</SidebarMenuLabel>
+          </SidebarMenuButton>
         </SidebarMenuItem>
         <FeatureGate feature="pulse">
           <SidebarMenuItem>

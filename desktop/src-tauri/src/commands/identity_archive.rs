@@ -225,6 +225,15 @@ pub struct ArchivedIdentitiesSnapshot {
 struct RelayInformationDocument {
     #[serde(default, rename = "self")]
     self_: Option<String>,
+    #[serde(default)]
+    cos_follow_up: Option<CosFollowUpAuthorityDocument>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CosFollowUpAuthorityDocument {
+    schema: String,
+    bridge_pubkey: String,
+    channel_mapping: String,
 }
 
 pub(crate) async fn fetch_relay_self(state: &AppState) -> Result<Option<String>, String> {
@@ -256,6 +265,51 @@ pub(crate) async fn fetch_relay_self(state: &AppState) -> Result<Option<String>,
     } else {
         Ok(None)
     }
+}
+
+fn cos_follow_up_bridge_pubkey_from_document(
+    document: &RelayInformationDocument,
+) -> Option<String> {
+    let authority = document.cos_follow_up.as_ref()?;
+    if authority.schema != "mac-workspace/cos-follow-up-authority/v1"
+        || authority.channel_mapping != "signed-item-h-p-v1"
+        || authority.bridge_pubkey.len() != 64
+        || !authority
+            .bridge_pubkey
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || hex::decode(&authority.bridge_pubkey)
+            .ok()
+            .filter(|bytes| nostr::secp256k1::XOnlyPublicKey::from_slice(bytes.as_slice()).is_ok())
+            .is_none()
+    {
+        return None;
+    }
+    Some(authority.bridge_pubkey.clone())
+}
+
+pub(crate) async fn fetch_cos_follow_up_bridge_pubkey(
+    state: &AppState,
+) -> Result<Option<String>, String> {
+    let relay_url = relay_ws_url_with_override(state);
+    let http_url = relay_http_base_url(&relay_url);
+    let response = state
+        .http_client
+        .get(&http_url)
+        .header("Accept", "application/nostr+json")
+        .send()
+        .await
+        .map_err(|e| classify_request_error(&e))?;
+
+    if !response.status().is_success() {
+        return Ok(None);
+    }
+
+    let document = response
+        .json::<RelayInformationDocument>()
+        .await
+        .map_err(|_| "relay returned malformed NIP-11 document".to_string())?;
+    Ok(cos_follow_up_bridge_pubkey_from_document(&document))
 }
 
 fn archived_pubkeys_from_snapshot(snapshot: &nostr::Event) -> Vec<String> {
@@ -328,6 +382,17 @@ pub async fn list_archived_identities(
 #[tauri::command]
 pub async fn get_relay_self(state: State<'_, AppState>) -> Result<Option<String>, String> {
     fetch_relay_self(&state).await
+}
+
+/// Read the relay-configured COS bridge identity from its NIP-11 contract.
+///
+/// Missing or malformed authority returns `None`; callers must fail closed and
+/// project no follow-up state.
+#[tauri::command]
+pub async fn get_cos_follow_up_bridge_pubkey(
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    fetch_cos_follow_up_bridge_pubkey(&state).await
 }
 
 // ── Tests ───────────────────────────────────────────────────────────────────
@@ -410,6 +475,51 @@ mod tests {
             doc.self_.as_deref(),
             Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         );
+    }
+
+    #[test]
+    fn relay_information_document_requires_exact_cos_follow_up_authority() {
+        let bridge = "a".repeat(64);
+        let document: RelayInformationDocument = serde_json::from_value(serde_json::json!({
+            "cos_follow_up": {
+                "schema": "mac-workspace/cos-follow-up-authority/v1",
+                "bridge_pubkey": bridge,
+                "channel_mapping": "signed-item-h-p-v1"
+            }
+        }))
+        .expect("NIP-11 document");
+        assert_eq!(
+            cos_follow_up_bridge_pubkey_from_document(&document).as_deref(),
+            Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        );
+
+        for invalid in [
+            serde_json::json!({}),
+            serde_json::json!({"cos_follow_up": {
+                "schema": "wrong",
+                "bridge_pubkey": "a".repeat(64),
+                "channel_mapping": "signed-item-h-p-v1"
+            }}),
+            serde_json::json!({"cos_follow_up": {
+                "schema": "mac-workspace/cos-follow-up-authority/v1",
+                "bridge_pubkey": "A".repeat(64),
+                "channel_mapping": "signed-item-h-p-v1"
+            }}),
+            serde_json::json!({"cos_follow_up": {
+                "schema": "mac-workspace/cos-follow-up-authority/v1",
+                "bridge_pubkey": "f".repeat(64),
+                "channel_mapping": "signed-item-h-p-v1"
+            }}),
+            serde_json::json!({"cos_follow_up": {
+                "schema": "mac-workspace/cos-follow-up-authority/v1",
+                "bridge_pubkey": "a".repeat(64),
+                "channel_mapping": "untrusted"
+            }}),
+        ] {
+            let document: RelayInformationDocument =
+                serde_json::from_value(invalid).expect("shape");
+            assert!(cos_follow_up_bridge_pubkey_from_document(&document).is_none());
+        }
     }
 
     /// Spec test-vector regression for gotcha #3: the NIP-OA preimage subject

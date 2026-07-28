@@ -292,6 +292,13 @@ type E2eConfig = {
     // equals this is treated as a moderation DM (composer disabled). Absent →
     // fail open (no mod-DM detection), matching the Rust command's contract.
     relaySelf?: string | null;
+    /** Exact COS bridge authority returned by the mocked NIP-11 command.
+     * Undefined keeps the established trusted mock identity default; null
+     * explicitly disables the feature. */
+    cosFollowUpBridgePubkey?: string | null;
+    /** Delay registration of trusted kind-5 live subscriptions so the COS
+     * history→subscription handoff can be exercised deterministically. */
+    cosFollowUpRemovalSubscribeDelayMs?: number;
     oaOwnerIsMe?: boolean;
     /** Whether the mock relay advertises NIP-43 membership support. Defaults to false. */
     relayRequiresMembership?: boolean;
@@ -854,6 +861,8 @@ const GLOBAL_MOCK_SUBSCRIPTION = "*";
 type MockSubscription = {
   channelId: string;
   kinds: number[] | null;
+  /** Exact event authors from the REQ filters, if any. */
+  authors: string[];
   /** `#p` values from the REQ filters, if any — lets specs assert an
    *  owner-scoped live subscription (e.g. the observer-archive `24200`
    *  reconciliation gate) independently of channel-scoped ones. */
@@ -1033,6 +1042,7 @@ declare global {
       kind: number;
       tags: string[][];
     }>;
+    __BUZZ_E2E_LAST_COS_COMMAND__?: RelayEvent;
     /** Project event kinds rejected once, in order, to exercise retry flows. */
     __BUZZ_E2E_REJECT_PROJECT_EVENT_KINDS__?: number[];
     /** Structured merge error returned by the mock native merge command. */
@@ -3828,7 +3838,16 @@ function emitMockLiveEvent(channelId: string, event: RelayEvent) {
       if (
         (subscription.channelId === channelId ||
           subscription.channelId === GLOBAL_MOCK_SUBSCRIPTION) &&
-        (!subscription.kinds || subscription.kinds.includes(event.kind))
+        (!subscription.kinds || subscription.kinds.includes(event.kind)) &&
+        (subscription.authors.length === 0 ||
+          subscription.authors.includes(event.pubkey.toLowerCase())) &&
+        (subscription.ownerPubkeys.length === 0 ||
+          event.tags.some(
+            (tag) =>
+              tag[0] === "p" &&
+              tag[1] &&
+              subscription.ownerPubkeys.includes(tag[1]),
+          ))
       ) {
         sendWsText(socket.handler, ["EVENT", subId, event]);
       }
@@ -3889,6 +3908,31 @@ function hasMockOwnerKindSubscription(ownerPubkey: string, kind: number) {
 
 function recordMockMessage(channelId: string, event: RelayEvent) {
   const history = getMockMessageStore(channelId);
+  if (event.kind === 37010) {
+    const dTag = event.tags.find((tag) => tag[0] === "d")?.[1];
+    if (dTag) {
+      const existingIndex = history.findIndex(
+        (candidate) =>
+          candidate.kind === event.kind &&
+          candidate.pubkey === event.pubkey &&
+          candidate.tags.some((tag) => tag[0] === "d" && tag[1] === dTag),
+      );
+      if (existingIndex >= 0) history.splice(existingIndex, 1);
+    }
+  }
+  if (event.kind === KIND_DELETION) {
+    const itemId = event.tags.find((tag) => tag[0] === "item")?.[1];
+    const targetId = event.tags.find((tag) => tag[0] === "e")?.[1];
+    if (itemId && targetId) {
+      const targetIndex = history.findIndex(
+        (candidate) =>
+          candidate.kind === 37010 &&
+          candidate.id === targetId &&
+          candidate.tags.some((tag) => tag[0] === "d" && tag[1] === itemId),
+      );
+      if (targetIndex >= 0) history.splice(targetIndex, 1);
+    }
+  }
   history.push(event);
 
   const channel = mockChannels.find((candidate) => candidate.id === channelId);
@@ -8759,12 +8803,16 @@ function sendToMockSocket(args: {
       // Collect channel IDs from all filters in the REQ
       const channelIds = new Set<string>();
       const kinds = new Set<number>();
+      const authors = new Set<string>();
       const ownerPubkeys = new Set<string>();
       for (const f of filters) {
         const cid = f["#h"]?.[0];
         if (cid) channelIds.add(cid);
         for (const kind of f.kinds ?? []) {
           kinds.add(kind);
+        }
+        for (const author of f.authors ?? []) {
+          authors.add(author.toLowerCase());
         }
         for (const p of f["#p"] ?? []) {
           ownerPubkeys.add(p);
@@ -8784,12 +8832,23 @@ function sendToMockSocket(args: {
         sendWsText(socket.handler, ["CLOSED", subId, "rate-limited"]);
         return;
       }
-      socket.subscriptions.set(subId, {
-        channelId: onlyChannelId ?? GLOBAL_MOCK_SUBSCRIPTION,
-        kinds: kinds.size > 0 ? [...kinds] : null,
-        ownerPubkeys: [...ownerPubkeys],
-      });
-      sendWsText(socket.handler, ["EOSE", subId]);
+      const registerSubscription = () => {
+        socket.subscriptions.set(subId, {
+          channelId: onlyChannelId ?? GLOBAL_MOCK_SUBSCRIPTION,
+          kinds: kinds.size > 0 ? [...kinds] : null,
+          authors: [...authors],
+          ownerPubkeys: [...ownerPubkeys],
+        });
+        sendWsText(socket.handler, ["EOSE", subId]);
+      };
+      const removalDelayMs = kinds.has(KIND_DELETION)
+        ? (getConfig()?.mock?.cosFollowUpRemovalSubscribeDelayMs ?? 0)
+        : 0;
+      if (removalDelayMs > 0) {
+        window.setTimeout(registerSubscription, removalDelayMs);
+      } else {
+        registerSubscription();
+      }
       return;
     }
 
@@ -8839,6 +8898,34 @@ function sendToMockSocket(args: {
       const authors = filter.authors?.map((a) => a.toLowerCase());
       for (const event of mockReminderEvents) {
         if (authors && !authors.includes(event.pubkey.toLowerCase())) continue;
+        sendWsText(socket.handler, ["EVENT", subId, event]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
+    if (filter.kinds?.includes(37010) && (filter["#p"]?.length ?? 0) > 0) {
+      const assignees = new Set(filter["#p"]);
+      const authors = new Set(
+        (filter.authors ?? []).map((author) => author.toLowerCase()),
+      );
+      const events = [...mockMessages.values()]
+        .flat()
+        .filter(
+          (event) =>
+            event.kind === 37010 &&
+            (authors.size === 0 || authors.has(event.pubkey.toLowerCase())) &&
+            event.tags.some(
+              (tag) => tag[0] === "p" && tag[1] && assignees.has(tag[1]),
+            ),
+        )
+        .sort(
+          (left, right) =>
+            right.created_at - left.created_at ||
+            left.id.localeCompare(right.id),
+        )
+        .slice(0, filter.limit ?? 500);
+      for (const event of events) {
         sendWsText(socket.handler, ["EVENT", subId, event]);
       }
       sendWsText(socket.handler, ["EOSE", subId]);
@@ -10821,25 +10908,31 @@ export function maybeInstallE2eTauriMocks() {
           tags: (payload as { tags: string[][] }).tags,
         });
         if (identity) {
-          return JSON.stringify(
-            await signWithIdentity(identity, {
-              kind: (payload as { kind: number }).kind,
-              content: (payload as { content: string }).content,
-              createdAt: (payload as { createdAt?: number }).createdAt,
-              tags: (payload as { tags: string[][] }).tags,
-            }),
-          );
+          const signed = await signWithIdentity(identity, {
+            kind: (payload as { kind: number }).kind,
+            content: (payload as { content: string }).content,
+            createdAt: (payload as { createdAt?: number }).createdAt,
+            tags: (payload as { tags: string[][] }).tags,
+          });
+          if (signed.kind === 47010) {
+            window.__BUZZ_E2E_LAST_COS_COMMAND__ = signed;
+          }
+          return JSON.stringify(signed);
         }
 
-        return JSON.stringify(
-          createMockEvent(
+        {
+          const signed = createMockEvent(
             (payload as { kind: number }).kind,
             (payload as { content: string }).content,
             (payload as { tags: string[][] }).tags,
             DEFAULT_MOCK_IDENTITY.pubkey,
             (payload as { createdAt?: number }).createdAt,
-          ),
-        );
+          );
+          if (signed.kind === 47010) {
+            window.__BUZZ_E2E_LAST_COS_COMMAND__ = signed;
+          }
+          return JSON.stringify(signed);
+        }
       case "nip44_encrypt_to_self":
         return (payload as { plaintext: string }).plaintext;
       case "nip44_decrypt_from_self":
@@ -11015,6 +11108,10 @@ export function maybeInstallE2eTauriMocks() {
           );
         }
         return activeConfig?.mock?.relaySelf ?? null;
+      case "get_cos_follow_up_bridge_pubkey":
+        return activeConfig?.mock?.cosFollowUpBridgePubkey === undefined
+          ? DEFAULT_MOCK_IDENTITY.pubkey
+          : activeConfig.mock.cosFollowUpBridgePubkey;
       case "archive_identity":
       case "unarchive_identity":
         // The spec only verifies UI state, not the submitted request shape;

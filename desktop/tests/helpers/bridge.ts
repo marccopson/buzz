@@ -132,6 +132,10 @@ type MockBridgeOptions = {
   projectHeadBranch?: string;
   /** Relay NIP-11 identity used to sign authoritative repository state. */
   relaySelf?: string | null;
+  /** Relay NIP-11 COS follow-up bridge authority. Null disables the feature. */
+  cosFollowUpBridgePubkey?: string | null;
+  /** Delay trusted kind-5 live subscription registration for race tests. */
+  cosFollowUpRemovalSubscribeDelayMs?: number;
   /** Builderlab account returned by hosted-community onboarding. Null/omitted = signed out. */
   builderlabAuth?: { email?: string; name?: string; expiresAt: string } | null;
   /** Bound Builderlab Nostr identity. Null/omitted = not linked yet. */

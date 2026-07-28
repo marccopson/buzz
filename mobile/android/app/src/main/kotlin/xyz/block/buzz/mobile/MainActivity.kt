@@ -1,5 +1,11 @@
 package com.macsurfacing.workspace
 
+import android.Manifest
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
@@ -78,6 +84,8 @@ internal object AndroidImageProcessor {
 
 class MainActivity : FlutterActivity() {
     private var mediaUploadChannel: MethodChannel? = null
+    private var followUpNotificationChannel: MethodChannel? = null
+    private lateinit var followUpNotificationDeliveryQueue: FollowUpNotificationDeliveryQueue
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -101,6 +109,129 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+
+        ensureFollowUpNotificationChannel()
+        followUpNotificationDeliveryQueue = FollowUpNotificationDeliveryQueue(
+            show = ::postFollowUpNotification,
+            requestPermission = {
+                getSharedPreferences(FOLLOW_UP_NOTIFICATION_PREFS, Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean(FOLLOW_UP_PERMISSION_REQUESTED_KEY, true)
+                    .apply()
+                requestPermissions(
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    FOLLOW_UP_PERMISSION_REQUEST_CODE,
+                )
+            },
+        )
+        followUpNotificationChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            FOLLOW_UP_NOTIFICATION_CHANNEL,
+        ).also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method != "show") {
+                    result.notImplemented()
+                    return@setMethodCallHandler
+                }
+                val payload = call.arguments as? Map<*, *>
+                val id = payload?.get("id") as? String
+                val title = payload?.get("title") as? String
+                val body = payload?.get("body") as? String
+                if (id == null || title == null || body == null) {
+                    invalidArguments(result, "Expected notification id, title, and body.")
+                    return@setMethodCallHandler
+                }
+                followUpNotificationDeliveryQueue.deliver(
+                    FollowUpNotificationPayload(id, title, body),
+                    followUpNotificationPermission(),
+                ) { delivery ->
+                    result.success(delivery.wireValue)
+                }
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (
+            requestCode == FOLLOW_UP_PERMISSION_REQUEST_CODE &&
+            ::followUpNotificationDeliveryQueue.isInitialized
+        ) {
+            followUpNotificationDeliveryQueue.resolvePermission(
+                grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED,
+            )
+        }
+    }
+
+    private fun ensureFollowUpNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.createNotificationChannel(
+            NotificationChannel(
+                FOLLOW_UP_ANDROID_CHANNEL_ID,
+                "My Actions",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Questions and checks that need your attention"
+            },
+        )
+    }
+
+    private fun followUpNotificationPermission(): FollowUpNotificationPermission {
+        val permissionGranted =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        if (permissionGranted && followUpNotificationsEnabled()) {
+            return FollowUpNotificationPermission.GRANTED
+        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            return FollowUpNotificationPermission.DENIED
+        }
+        if (
+            ::followUpNotificationDeliveryQueue.isInitialized &&
+            followUpNotificationDeliveryQueue.isPermissionRequestInFlight
+        ) {
+            return FollowUpNotificationPermission.REQUESTABLE
+        }
+        val requested = getSharedPreferences(
+            FOLLOW_UP_NOTIFICATION_PREFS,
+            Context.MODE_PRIVATE,
+        ).getBoolean(FOLLOW_UP_PERMISSION_REQUESTED_KEY, false)
+        return if (requested) {
+            FollowUpNotificationPermission.DENIED
+        } else {
+            FollowUpNotificationPermission.REQUESTABLE
+        }
+    }
+
+    private fun followUpNotificationsEnabled(): Boolean {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (!manager.areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        return manager.getNotificationChannel(FOLLOW_UP_ANDROID_CHANNEL_ID)?.importance !=
+            NotificationManager.IMPORTANCE_NONE
+    }
+
+    private fun postFollowUpNotification(payload: FollowUpNotificationPayload) {
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, FOLLOW_UP_ANDROID_CHANNEL_ID)
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+        }
+        val notification = builder
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(payload.title)
+            .setContentText(payload.body)
+            .setAutoCancel(true)
+            .build()
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        manager.notify(payload.id.hashCode(), notification)
     }
 
     private fun handleSanitizeImageForUpload(
@@ -284,5 +415,10 @@ class MainActivity : FlutterActivity() {
         private const val SANITIZE_IMAGE_FOR_UPLOAD_METHOD = "sanitizeImageForUpload"
         private const val TRANSCODE_IMAGE_TO_JPEG_METHOD = "transcodeImageToJpeg"
         private const val TRANSCODE_VIDEO_TO_MP4_METHOD = "transcodeVideoToMp4"
+        private const val FOLLOW_UP_NOTIFICATION_CHANNEL = "buzz/cos_follow_up_notifications"
+        private const val FOLLOW_UP_ANDROID_CHANNEL_ID = "cos-follow-up-actions"
+        private const val FOLLOW_UP_NOTIFICATION_PREFS = "cos-follow-up-notifications"
+        private const val FOLLOW_UP_PERMISSION_REQUESTED_KEY = "permission-requested"
+        private const val FOLLOW_UP_PERMISSION_REQUEST_CODE = 47010
     }
 }

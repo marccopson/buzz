@@ -1,5 +1,7 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
+
+import type { AppView } from "@/app/AppShell.helpers";
 import { FeatureGate } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 
@@ -98,15 +100,7 @@ type AppSidebarProps = {
   selfPresenceStatus: PresenceStatus;
   errorMessage?: string;
   selectedChannelId: string | null;
-  selectedView:
-    | "home"
-    | "channel"
-    | "messages"
-    | "agents"
-    | "workflows"
-    | "pulse"
-    | "projects"
-    | "running-order";
+  selectedView: AppView;
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
   communities: Community[];
@@ -144,6 +138,7 @@ type AppSidebarProps = {
   onRemoveCommunity: (id: string) => void;
   onCreateAgent: () => void;
   onSelectAgents: () => void;
+  onSelectMyActions: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
   onSelectRunningOrder: () => void;
@@ -214,6 +209,7 @@ export function AppSidebar({
   onRemoveCommunity,
   onCreateAgent,
   onSelectAgents,
+  onSelectMyActions,
   onSelectProjects,
   onSelectPulse,
   onSelectRunningOrder,
@@ -613,6 +609,7 @@ export function AppSidebar({
                 homeBadgeCount={homeBadgeCount}
                 onSelectAgents={onSelectAgents}
                 onSelectHome={onSelectHome}
+                onSelectMyActions={onSelectMyActions}
                 onSelectProjects={onSelectProjects}
                 onSelectPulse={onSelectPulse}
                 onSelectRunningOrder={onSelectRunningOrder}
