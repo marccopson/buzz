@@ -15,6 +15,7 @@ void main() {
   NostrEvent event({
     int createdAt = 1,
     String secretKey = bridgeSecret,
+    String channelId = 'mac',
     String modules =
         '["today","my_actions","messages","agents","running_order"]',
   }) {
@@ -22,13 +23,32 @@ void main() {
       kind: EventKind.cosUserContext,
       content:
           '{"schema":"mac-workspace/cos-user-context/v1","modules":$modules}',
-      tags: const [
-        ['h', 'mac'],
-        ['p', assignee],
-        ['d', 'context:$assignee'],
+      tags: [
+        ['h', channelId],
+        const ['p', assignee],
+        const ['d', 'context:$assignee'],
       ],
       secretKey: secretKey,
       createdAt: createdAt,
+      verify: true,
+    );
+    return NostrEvent.fromJson(signed.toMap());
+  }
+
+  NostrEvent channelState({
+    required int kind,
+    required String channelId,
+    required List<List<String>> tags,
+  }) {
+    final signed = nostr.Event.from(
+      kind: kind,
+      content: '',
+      tags: [
+        ['d', channelId],
+        ...tags,
+      ],
+      secretKey: attackerSecret,
+      createdAt: 1,
       verify: true,
     );
     return NostrEvent.fromJson(signed.toMap());
@@ -82,5 +102,114 @@ void main() {
       trustedBridgePubkey: bridge,
     );
     expect(selected?.eventId, newer.id);
+  });
+
+  test('binds access to one exact private bridge-owned channel', () {
+    const otherChannel = 'other';
+    final contexts = [
+      event(channelId: 'mac'),
+      event(channelId: otherChannel, createdAt: 2),
+    ];
+    final candidates = cosUserContextChannelCandidates(
+      contexts,
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+    );
+    expect(candidates, ['mac', otherChannel]);
+    final resolved = resolveAuthoritativeCosUserContextChannel(
+      candidateChannelIds: candidates,
+      metadataEvents: [
+        channelState(
+          kind: 39000,
+          channelId: 'mac',
+          tags: const [
+            ['private'],
+          ],
+        ),
+        channelState(
+          kind: 39000,
+          channelId: otherChannel,
+          tags: const [
+            ['private'],
+          ],
+        ),
+      ],
+      membershipEvents: [
+        channelState(
+          kind: 39002,
+          channelId: 'mac',
+          tags: [
+            ['p', bridge, '', 'owner'],
+            const ['p', assignee, '', 'member'],
+          ],
+        ),
+        channelState(
+          kind: 39002,
+          channelId: otherChannel,
+          tags: [
+            ['p', bridge, '', 'owner'],
+            const ['p', assignee, '', 'member'],
+            const ['p', attackerSecret, '', 'member'],
+          ],
+        ),
+      ],
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+    );
+    expect(resolved, 'mac');
+    expect(
+      selectLatestCosUserContext(
+        contexts,
+        assigneePubkey: assignee,
+        trustedBridgePubkey: bridge,
+        expectedChannelId: resolved,
+      )?.channelId,
+      'mac',
+    );
+  });
+
+  test('fails closed when two channels claim the same identity', () {
+    const otherChannel = 'other';
+    final resolved = resolveAuthoritativeCosUserContextChannel(
+      candidateChannelIds: const ['mac', otherChannel],
+      metadataEvents: [
+        channelState(
+          kind: 39000,
+          channelId: 'mac',
+          tags: const [
+            ['private'],
+          ],
+        ),
+        channelState(
+          kind: 39000,
+          channelId: otherChannel,
+          tags: const [
+            ['private'],
+          ],
+        ),
+      ],
+      membershipEvents: [
+        for (final channel in const ['mac', otherChannel])
+          channelState(
+            kind: 39002,
+            channelId: channel,
+            tags: [
+              ['p', bridge, '', 'owner'],
+              const ['p', assignee, '', 'member'],
+            ],
+          ),
+      ],
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+    );
+    expect(resolved, isNull);
+    expect(
+      () => parseCosUserContext(
+        event(channelId: otherChannel),
+        expectedAssignee: assignee,
+        expectedChannelId: 'mac',
+      ),
+      throwsFormatException,
+    );
   });
 }

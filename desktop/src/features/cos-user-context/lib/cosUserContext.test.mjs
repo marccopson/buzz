@@ -4,8 +4,10 @@ import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
 import {
   currentCosUserContext,
+  cosUserContextChannelCandidates,
   hasCosWorkspaceModule,
   parseCosUserContext,
+  resolveAuthoritativeCosUserContextChannel,
   selectLatestCosUserContext,
 } from "./cosUserContext.ts";
 
@@ -19,13 +21,14 @@ function contextEvent({
   secretKey = bridgeSecret,
   createdAt = 1,
   modules = ["today", "my_actions", "messages", "assistant"],
+  channelId = channel,
 } = {}) {
   return finalizeEvent(
     {
       created_at: createdAt,
       kind: 37012,
       tags: [
-        ["h", channel],
+        ["h", channelId],
         ["d", `context:${assignee}`],
         ["p", assignee],
       ],
@@ -51,6 +54,43 @@ function contextEvent({
       }),
     },
     secretKey,
+  );
+}
+
+function channelMetadata(channelId, { isPrivate = true, createdAt = 1 } = {}) {
+  return finalizeEvent(
+    {
+      created_at: createdAt,
+      kind: 39000,
+      tags: [["d", channelId], ...(isPrivate ? [["private"]] : [["public"]])],
+      content: "",
+    },
+    bridgeSecret,
+  );
+}
+
+function channelMembership(
+  channelId,
+  {
+    assigneePubkey = assignee,
+    ownerPubkey = bridge,
+    extraPubkey,
+    createdAt = 1,
+  } = {},
+) {
+  return finalizeEvent(
+    {
+      created_at: createdAt,
+      kind: 39002,
+      tags: [
+        ["d", channelId],
+        ["p", ownerPubkey, "", "owner"],
+        ["p", assigneePubkey, "", "member"],
+        ...(extraPubkey ? [["p", extraPubkey, "", "member"]] : []),
+      ],
+      content: "",
+    },
+    attackerSecret,
   );
 }
 
@@ -125,6 +165,58 @@ test("selects the latest projection from only the trusted bridge", () => {
     bridge,
   );
   assert.equal(latest?.eventId, second.id);
+});
+
+test("binds role projection to the unique current private identity channel", () => {
+  const otherChannel = "550e8400-e29b-41d4-a716-446655440001";
+  const events = [
+    contextEvent({ channelId: channel }),
+    contextEvent({ channelId: otherChannel, createdAt: 2 }),
+  ];
+  const candidates = cosUserContextChannelCandidates(events, assignee, bridge);
+  assert.deepEqual(candidates, [channel, otherChannel]);
+  const resolved = resolveAuthoritativeCosUserContextChannel({
+    candidateChannelIds: candidates,
+    metadataEvents: [channelMetadata(channel), channelMetadata(otherChannel)],
+    membershipEvents: [
+      channelMembership(channel),
+      channelMembership(otherChannel, { extraPubkey: "c".repeat(64) }),
+    ],
+    assigneePubkey: assignee,
+    trustedBridgePubkey: bridge,
+  });
+  assert.equal(resolved, channel);
+  assert.equal(
+    selectLatestCosUserContext(events, assignee, bridge, resolved)?.channelId,
+    channel,
+  );
+});
+
+test("fails closed when two channels claim the same active identity", () => {
+  const otherChannel = "550e8400-e29b-41d4-a716-446655440001";
+  const candidates = [channel, otherChannel];
+  assert.equal(
+    resolveAuthoritativeCosUserContextChannel({
+      candidateChannelIds: candidates,
+      metadataEvents: [channelMetadata(channel), channelMetadata(otherChannel)],
+      membershipEvents: [
+        channelMembership(channel),
+        channelMembership(otherChannel),
+      ],
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+    }),
+    null,
+  );
+  assert.throws(
+    () =>
+      parseCosUserContext(
+        contextEvent({ channelId: otherChannel }),
+        assignee,
+        channel,
+      ),
+    /different channel/,
+  );
 });
 
 test("does not authorise cached context after a refresh failure", () => {

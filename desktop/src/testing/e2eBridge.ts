@@ -954,9 +954,43 @@ function createMockCosUserContextEvent(
         generated_at: new Date().toISOString(),
       }),
       tags: [
-        ["h", STARTER_GENERAL_CHANNEL_ID],
+        ["h", COS_FOLLOW_UP_CHANNEL_ID],
         ["d", `context:${assigneePubkey}`],
         ["p", assigneePubkey],
+      ],
+    },
+    MOCK_COS_BRIDGE_PRIVATE_KEY,
+  );
+}
+
+function createMockCosFollowUpChannelMetadataEvent(): RelayEvent {
+  return finalizeEvent(
+    {
+      kind: 39000,
+      created_at: Math.floor(Date.now() / 1000),
+      content: "",
+      tags: [
+        ["d", COS_FOLLOW_UP_CHANNEL_ID],
+        ["private"],
+        ["name", "cos-follow-up"],
+      ],
+    },
+    MOCK_COS_BRIDGE_PRIVATE_KEY,
+  );
+}
+
+function createMockCosFollowUpChannelMembershipEvent(
+  config: E2eConfig | undefined,
+): RelayEvent {
+  return finalizeEvent(
+    {
+      kind: 39002,
+      created_at: Math.floor(Date.now() / 1000),
+      content: "",
+      tags: [
+        ["d", COS_FOLLOW_UP_CHANNEL_ID],
+        ["p", MOCK_COS_BRIDGE_PUBKEY, "", "owner"],
+        ["p", getMockMemberPubkey(config).toLowerCase(), "", "member"],
       ],
     },
     MOCK_COS_BRIDGE_PRIVATE_KEY,
@@ -1329,6 +1363,7 @@ const OWNED_RELAY_AGENT_PUBKEY =
 const MOCK_IDENTITY_PUBKEY = DEFAULT_MOCK_IDENTITY.pubkey;
 const STARTER_GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const STARTER_WELCOME_CHANNEL_ID = "5f0b1b3c-2a37-5366-9b8c-31a4b21d8e77";
+const COS_FOLLOW_UP_CHANNEL_ID = "4fe3a809-b4fd-4b67-a5ca-550a3e425bd4";
 const STARTER_GENERAL_CHANNEL_NAME = "general";
 const STARTER_WELCOME_CHANNEL_NAME = "welcome-everyone";
 
@@ -9049,6 +9084,7 @@ function sendToMockSocket(args: {
       const requestedAssignees = new Set(
         (filter["#p"] ?? []).map((pubkey) => pubkey.toLowerCase()),
       );
+      const requestedChannels = new Set(filter["#h"] ?? []);
       const matches =
         contextEvent !== null &&
         (requestedAuthors.size === 0 ||
@@ -9064,6 +9100,11 @@ function sendToMockSocket(args: {
             tag[0] === "p" &&
             (requestedAssignees.size === 0 ||
               requestedAssignees.has(tag[1].toLowerCase())),
+        ) &&
+        contextEvent.tags.some(
+          (tag) =>
+            tag[0] === "h" &&
+            (requestedChannels.size === 0 || requestedChannels.has(tag[1])),
         );
       const respond = () => {
         if (matches) {
@@ -9077,6 +9118,42 @@ function sendToMockSocket(args: {
       } else {
         respond();
       }
+      return;
+    }
+
+    if (
+      filter.kinds?.includes(39000) &&
+      filter["#d"]?.includes(COS_FOLLOW_UP_CHANNEL_ID)
+    ) {
+      sendWsText(socket.handler, [
+        "EVENT",
+        subId,
+        createMockCosFollowUpChannelMetadataEvent(),
+      ]);
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
+    if (
+      filter.kinds?.includes(39002) &&
+      filter["#d"]?.includes(COS_FOLLOW_UP_CHANNEL_ID)
+    ) {
+      const membership = createMockCosFollowUpChannelMembershipEvent(
+        getConfig(),
+      );
+      const requestedAssignees = new Set(
+        (filter["#p"] ?? []).map((pubkey) => pubkey.toLowerCase()),
+      );
+      if (
+        requestedAssignees.size === 0 ||
+        membership.tags.some(
+          (tag) =>
+            tag[0] === "p" && requestedAssignees.has(tag[1].toLowerCase()),
+        )
+      ) {
+        sendWsText(socket.handler, ["EVENT", subId, membership]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
       return;
     }
 

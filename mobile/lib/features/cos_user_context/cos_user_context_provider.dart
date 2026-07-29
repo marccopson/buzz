@@ -13,22 +13,68 @@ final cosUserContextProvider = FutureProvider<CosUserContext?>((ref) async {
   if (pubkey == null || pubkey.isEmpty) return null;
   final bridgePubkey = await ref.watch(cosFollowUpBridgePubkeyProvider.future);
   if (bridgePubkey == null) return null;
-  final events = await ref
-      .read(relaySessionProvider.notifier)
-      .fetchHistory(
-        NostrFilter(
-          kinds: const [EventKind.cosUserContext],
-          authors: [bridgePubkey],
-          tags: {
-            '#p': [pubkey],
-          },
-          limit: 50,
-        ),
-      );
+  final session = ref.read(relaySessionProvider.notifier);
+  final candidateEvents = await session.fetchHistory(
+    NostrFilter(
+      kinds: const [EventKind.cosUserContext],
+      authors: [bridgePubkey],
+      tags: {
+        '#d': ['context:$pubkey'],
+        '#p': [pubkey],
+      },
+      limit: 50,
+    ),
+  );
+  final candidateChannelIds = cosUserContextChannelCandidates(
+    candidateEvents,
+    assigneePubkey: pubkey,
+    trustedBridgePubkey: bridgePubkey,
+  );
+  if (candidateChannelIds.isEmpty) return null;
+  final channelEvidence = await Future.wait([
+    session.fetchHistory(
+      NostrFilter(
+        kinds: const [39000],
+        tags: {'#d': candidateChannelIds},
+        limit: candidateChannelIds.length,
+      ),
+    ),
+    session.fetchHistory(
+      NostrFilter(
+        kinds: const [39002],
+        tags: {
+          '#d': candidateChannelIds,
+          '#p': [pubkey],
+        },
+        limit: candidateChannelIds.length,
+      ),
+    ),
+  ]);
+  final channelId = resolveAuthoritativeCosUserContextChannel(
+    candidateChannelIds: candidateChannelIds,
+    metadataEvents: channelEvidence[0],
+    membershipEvents: channelEvidence[1],
+    assigneePubkey: pubkey,
+    trustedBridgePubkey: bridgePubkey,
+  );
+  if (channelId == null) return null;
+  final events = await session.fetchHistory(
+    NostrFilter(
+      kinds: const [EventKind.cosUserContext],
+      authors: [bridgePubkey],
+      tags: {
+        '#d': ['context:$pubkey'],
+        '#h': [channelId],
+        '#p': [pubkey],
+      },
+      limit: 50,
+    ),
+  );
   return selectLatestCosUserContext(
     events,
     assigneePubkey: pubkey,
     trustedBridgePubkey: bridgePubkey,
+    expectedChannelId: channelId,
   );
 });
 

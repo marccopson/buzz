@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   const technicalContext = CosUserContext(
     eventId: 'context',
+    channelId: 'channel',
     assigneePubkey: 'user',
     modules: ['today', 'my_actions', 'messages', 'agents', 'running_order'],
     createdAt: 1,
