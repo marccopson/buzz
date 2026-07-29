@@ -456,13 +456,6 @@ pub fn validate_user_context_content(content: &UserContextContent) -> Result<(),
             "COS user context modules are invalid".into(),
         ));
     }
-    for required in ["today", "my_actions", "messages"] {
-        if !modules.contains(required) {
-            return Err(ContractError::Invalid(format!(
-                "COS user context is missing required module {required}"
-            )));
-        }
-    }
     if content.assistant.is_some() != modules.contains("assistant") {
         return Err(ContractError::Invalid(
             "COS user context assistant must match the assistant module".into(),

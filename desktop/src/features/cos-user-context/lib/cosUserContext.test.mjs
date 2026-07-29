@@ -103,10 +103,15 @@ test("parses a private staff context and exposes only projected modules", () => 
   assert.equal(hasCosWorkspaceModule(context, "agents"), false);
 });
 
-test("fails closed on privileged or malformed module projections", () => {
+test("accepts least-privilege module subsets and rejects malformed modules", () => {
+  const restricted = parseCosUserContext(
+    contextEvent({ modules: ["today", "messages"] }),
+    assignee,
+  );
+  assert.equal(hasCosWorkspaceModule(restricted, "my_actions"), false);
   assert.throws(() =>
     parseCosUserContext(
-      contextEvent({ modules: ["today", "agents"] }),
+      contextEvent({ modules: ["today", "secrets"] }),
       assignee,
     ),
   );
@@ -167,6 +172,21 @@ test("selects the latest projection from only the trusted bridge", () => {
     bridge,
   );
   assert.equal(latest?.eventId, second.id);
+});
+
+test("a newer trusted module revocation replaces the older projection", () => {
+  const older = contextEvent({ createdAt: 1 });
+  const restricted = contextEvent({
+    createdAt: 2,
+    modules: ["today", "messages"],
+  });
+  const latest = selectLatestCosUserContext(
+    [older, restricted],
+    assignee,
+    bridge,
+  );
+  assert.equal(latest?.eventId, restricted.id);
+  assert.equal(hasCosWorkspaceModule(latest, "my_actions"), false);
 });
 
 test("binds role projection to the unique current private identity channel", () => {

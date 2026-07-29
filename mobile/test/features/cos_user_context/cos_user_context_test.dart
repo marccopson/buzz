@@ -92,7 +92,7 @@ void main() {
     expect(context.canUseControlRoom, isTrue);
   });
 
-  test('fails closed for an untrusted or incomplete projection', () {
+  test('accepts restricted modules and fails closed for untrusted context', () {
     expect(
       selectLatestCosUserContext(
         [event(secretKey: attackerSecret)],
@@ -102,11 +102,11 @@ void main() {
       isNull,
     );
     expect(
-      () => parseCosUserContext(
+      parseCosUserContext(
         event(modules: const ['today', 'messages']),
         expectedAssignee: assignee,
-      ),
-      throwsFormatException,
+      ).hasModule('my_actions'),
+      isFalse,
     );
     final signed = event();
     expect(
@@ -219,13 +219,14 @@ void main() {
 
   test('selects the newest trusted projection deterministically', () {
     final older = event(createdAt: 1);
-    final newer = event(createdAt: 2);
+    final newer = event(createdAt: 2, modules: const ['today', 'messages']);
     final selected = selectLatestCosUserContext(
       [older, newer],
       assigneePubkey: assignee,
       trustedBridgePubkey: bridge,
     );
     expect(selected?.eventId, newer.id);
+    expect(selected?.hasModule('my_actions'), isFalse);
   });
 
   test('binds access to one exact private bridge-owned channel', () {

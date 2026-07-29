@@ -5,6 +5,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../shared/relay/relay_provider.dart';
+import '../cos_user_context/cos_user_context_provider.dart';
 import 'agent_health.dart';
 
 final agentHealthHttpClientProvider = Provider<http.Client>((ref) {
@@ -52,17 +53,34 @@ final agentHealthExpiryClockProvider = StreamProvider.autoDispose
 
 class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
   Timer? _poll;
+  int _accessGeneration = 0;
+  bool _authorised = false;
 
   @override
   Future<AgentHealthSnapshot> build() async {
+    final generation = ++_accessGeneration;
+    final workspaceContext = currentCosUserContext(
+      ref.watch(cosUserContextProvider),
+    );
     ref.watch(relayConfigProvider);
     _poll?.cancel();
+    _authorised = workspaceContext?.canUseControlRoom == true;
+    if (!_authorised) {
+      throw StateError('Control Room access is not available for this role.');
+    }
     _poll = Timer.periodic(
       const Duration(minutes: 1),
       (_) => unawaited(refresh()),
     );
-    ref.onDispose(() => _poll?.cancel());
+    ref.onDispose(() {
+      _authorised = false;
+      _accessGeneration++;
+      _poll?.cancel();
+    });
     final snapshot = await _fetch();
+    if (!_authorised || generation != _accessGeneration) {
+      throw StateError('Control Room access changed during refresh.');
+    }
     ref
         .read(agentHealthRefreshStatusProvider.notifier)
         .update(AgentHealthRefreshStatus.idle);
@@ -70,6 +88,9 @@ class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
   }
 
   Future<AgentHealthSnapshot> _fetch() async {
+    if (!_authorised) {
+      throw StateError('Control Room access is not available for this role.');
+    }
     final relayUrl = ref.read(relayConfigProvider).baseUrl;
     final response = await ref
         .read(agentHealthHttpClientProvider)
@@ -86,6 +107,8 @@ class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
   }
 
   Future<void> refresh() async {
+    if (!_authorised) return;
+    final generation = _accessGeneration;
     final refreshStatus = ref.read(agentHealthRefreshStatusProvider.notifier);
     if (ref.read(agentHealthRefreshStatusProvider) ==
         AgentHealthRefreshStatus.refreshing) {
@@ -93,9 +116,12 @@ class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
     }
     refreshStatus.update(AgentHealthRefreshStatus.refreshing);
     try {
-      state = AsyncData(await _fetch());
+      final snapshot = await _fetch();
+      if (!_authorised || generation != _accessGeneration) return;
+      state = AsyncData(snapshot);
       refreshStatus.update(AgentHealthRefreshStatus.idle);
     } on Object catch (error, stackTrace) {
+      if (!_authorised || generation != _accessGeneration) return;
       refreshStatus.update(AgentHealthRefreshStatus.failed);
       if (!state.hasValue) {
         state = AsyncError(error, stackTrace);
@@ -105,6 +131,6 @@ class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
 }
 
 final agentHealthProvider =
-    AsyncNotifierProvider<AgentHealthNotifier, AgentHealthSnapshot>(
+    AsyncNotifierProvider.autoDispose<AgentHealthNotifier, AgentHealthSnapshot>(
       AgentHealthNotifier.new,
     );

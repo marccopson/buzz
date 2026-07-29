@@ -85,10 +85,7 @@ CosUserContext parseCosUserContext(
     throw const FormatException('Unsupported Workspace module');
   }
   final modules = rawModules.cast<String>();
-  if (modules.toSet().length != modules.length ||
-      !modules.contains('today') ||
-      !modules.contains('my_actions') ||
-      !modules.contains('messages')) {
+  if (modules.toSet().length != modules.length) {
     throw const FormatException('COS user-context modules are invalid');
   }
   final assistant = decoded['assistant'];

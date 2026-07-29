@@ -282,6 +282,33 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(requests, 2);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.text('Healthy').first),
+    );
+    container.updateOverrides([
+      cosUserContextProvider.overrideWithValue(
+        const AsyncData(
+          CosUserContext(
+            eventId: 'restricted-context',
+            channelId: 'channel',
+            assigneePubkey: 'user',
+            modules: ['today', 'messages'],
+            createdAt: 2,
+          ),
+        ),
+      ),
+      relayConfigProvider.overrideWith(
+        () => _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
+      ),
+      agentHealthHttpClientProvider.overrideWithValue(client),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.text('Access not available'), findsOneWidget);
+
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pumpAndSettle();
+    expect(requests, 2, reason: 'revocation must cancel the health poll');
   });
 
   testWidgets('fails closed before fetching when role access is absent', (

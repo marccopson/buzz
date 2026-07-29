@@ -135,6 +135,36 @@ fn user_context_rejects_privileged_or_unknown_modules() {
 }
 
 #[test]
+fn user_context_allows_a_least_privilege_module_revocation() {
+    let assignee = Keys::generate().public_key();
+    let content: UserContextContent = serde_json::from_value(serde_json::json!({
+        "schema": USER_CONTEXT_SCHEMA,
+        "tenant_slug": "mac-surfacing",
+        "user": {
+            "id": 7,
+            "name": "Jake Wherton",
+            "role": "managing_director",
+            "role_label": "Managing Director"
+        },
+        "modules": ["today", "messages"],
+        "assistant": null,
+        "generated_at": "2026-07-29T10:00:00Z"
+    }))
+    .unwrap();
+
+    let event = build_user_context_event(Uuid::new_v4(), assignee, &content)
+        .unwrap()
+        .sign_with_keys(&Keys::generate())
+        .unwrap();
+    match parse_event(&event).unwrap() {
+        FollowUpEvent::UserContext(parsed) => {
+            assert!(!parsed.content.modules.contains(&"my_actions".to_string()));
+        }
+        other => panic!("expected user context, got {other:?}"),
+    }
+}
+
+#[test]
 fn item_builder_and_parser_pin_channel_coordinate_and_assignee() {
     let channel = Uuid::new_v4();
     let assignee = Keys::generate().public_key();

@@ -47,7 +47,6 @@ const VALID_MODULES = new Set<CosWorkspaceModule>([
   "running_order",
   "agents",
 ]);
-const REQUIRED_MODULES = ["today", "my_actions", "messages"] as const;
 const TENANT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function record(value: unknown): JsonRecord {
@@ -173,11 +172,6 @@ function parseModules(value: unknown): CosWorkspaceModule[] {
   });
   if (new Set(modules).size !== modules.length) {
     throw new Error("modules contains duplicates");
-  }
-  for (const required of REQUIRED_MODULES) {
-    if (!modules.includes(required)) {
-      throw new Error(`modules must include ${required}`);
-    }
   }
   return modules;
 }
