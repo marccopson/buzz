@@ -4120,18 +4120,28 @@ function emitMockChannelMessage(
   id?: string,
 ) {
   const eventKind = kind ?? 9;
+  const isCosBridgeProjection =
+    eventKind === 37010 ||
+    eventKind === 47011 ||
+    (eventKind === KIND_DELETION &&
+      (extraTags?.some((tag) => tag[0] === "item") ?? false));
+  const authorPubkey =
+    pubkey ??
+    (isCosBridgeProjection
+      ? MOCK_COS_BRIDGE_PUBKEY
+      : DEFAULT_MOCK_IDENTITY.pubkey);
   if (!parentEventId) {
     const tags = buildTopLevelMessageTags(
       channelId,
       mentionPubkeys,
-      pubkey ?? DEFAULT_MOCK_IDENTITY.pubkey,
+      authorPubkey,
     );
     if (extraTags) tags.push(...extraTags);
     const event = createMockEvent(
       eventKind,
       content,
       tags,
-      pubkey,
+      authorPubkey,
       createdAt,
       id,
     );
@@ -4150,7 +4160,6 @@ function emitMockChannelMessage(
         rootEventId: null,
       };
   const rootEventId = parentThread.rootEventId ?? parentEventId;
-  const authorPubkey = pubkey ?? DEFAULT_MOCK_IDENTITY.pubkey;
   const tags = buildReplyMessageTags(
     channelId,
     authorPubkey,
