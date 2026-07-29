@@ -106,3 +106,32 @@ test("shows estate health separately from assurance gaps", async ({ page }) => {
     "recoverable",
   );
 });
+
+test("labels every stale desktop health group as last known", async ({
+  page,
+}) => {
+  await installMockBridge(page, { cosUserContext: "admin" });
+  await page.route("**/api/mac-agent-health/v1", async (route) => {
+    await route.fulfill({
+      body: JSON.stringify({
+        ...HEALTH,
+        source: { ...HEALTH.source, status: "stale" },
+      }),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+
+  await page.goto("/");
+  await page.getByTestId("open-control-room-view").click();
+
+  await expect(page.getByTestId("control-room-data-warning")).toContainText(
+    "Evidence stale",
+  );
+  await expect(page.getByTestId("control-room-agent-sammi")).toContainText(
+    "Last known: Healthy",
+  );
+  await expect(
+    page.getByTestId("control-room-component-buzz-runtime"),
+  ).toContainText("Last known: Healthy");
+});

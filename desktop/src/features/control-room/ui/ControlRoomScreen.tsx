@@ -63,7 +63,13 @@ function StatusIcon({ status }: { status: HealthStatus }) {
   return <AlertTriangle aria-hidden className="h-4 w-4 text-destructive" />;
 }
 
-function AgentCard({ agent }: { agent: AgentHealthRecord }) {
+function AgentCard({
+  agent,
+  current,
+}: {
+  agent: AgentHealthRecord;
+  current: boolean;
+}) {
   return (
     <article
       className={cn(
@@ -76,8 +82,10 @@ function AgentCard({ agent }: { agent: AgentHealthRecord }) {
         <div>
           <h2 className="font-semibold">{agent.name}</h2>
           <p className="text-xs text-muted-foreground">
-            Operational {STATUS_LABEL[agent.operationalStatus]} · Assurance{" "}
-            {agent.assuranceStatus}
+            {current
+              ? `Operational ${STATUS_LABEL[agent.operationalStatus]}`
+              : `Last known: ${STATUS_LABEL[agent.operationalStatus]}`}{" "}
+            · Assurance {agent.assuranceStatus}
           </p>
         </div>
         <StatusIcon status={agent.operationalStatus} />
@@ -308,7 +316,11 @@ export function ControlRoomScreen() {
                 <h2 className="mb-3 text-sm font-semibold">Brain agents</h2>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   {health.agents.map((agent) => (
-                    <AgentCard agent={agent} key={agent.id} />
+                    <AgentCard
+                      agent={agent}
+                      current={presentation?.current ?? false}
+                      key={agent.id}
+                    />
                   ))}
                 </div>
               </section>
@@ -322,11 +334,19 @@ export function ControlRoomScreen() {
                         "rounded-xl border p-4",
                         STATUS_CLASS[component.status],
                       )}
+                      data-testid={`control-room-component-${component.id}`}
                       key={component.id}
                     >
-                      <div className="flex items-center gap-2">
-                        <StatusIcon status={component.status} />
-                        <h3 className="font-semibold">{component.name}</h3>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <StatusIcon status={component.status} />
+                          <h3 className="font-semibold">{component.name}</h3>
+                        </div>
+                        <Badge variant="secondary">
+                          {presentation?.current
+                            ? STATUS_LABEL[component.status]
+                            : `Last known: ${STATUS_LABEL[component.status]}`}
+                        </Badge>
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
                         {component.detail}
