@@ -5,6 +5,8 @@ import {
   activateWelcomeTeamPersonasSequentially,
   buildWelcomeStarterCreateInput,
   LEGACY_WELCOME_GUIDE_SYSTEM_PROMPT,
+  MAC_WORKSPACE_WELCOME_PARALLELISM,
+  MAC_WORKSPACE_WELCOME_RUNTIME_ID,
   pickWelcomeGuideAgent,
   pickWelcomeGuideAgentForRelay,
   pickWelcomeTeamStarterAgentForRelay,
@@ -156,7 +158,7 @@ test("starter persona activation is serialized to protect the shared store", asy
   assert.deepEqual(calls, ["builtin:fizz", "builtin:honey", "builtin:bumble"]);
 });
 
-test("all Welcome starters use the onboarding runtime preference", async () => {
+test("all Welcome starters use the MAC Workspace Codex runtime with one worker", async () => {
   const claude = {
     id: "claude",
     label: "Claude",
@@ -177,6 +179,13 @@ test("all Welcome starters use the onboarding runtime preference", async () => {
     label: "Buzz Agent",
     command: "buzz-agent",
   };
+  const codex = {
+    ...claude,
+    id: "codex",
+    label: "Codex",
+    command: "codex-acp",
+    mcpCommand: "buzz-dev-mcp",
+  };
 
   for (const starter of WELCOME_TEAM_STARTERS) {
     const input = await buildWelcomeStarterCreateInput(
@@ -193,19 +202,45 @@ test("all Welcome starters use the onboarding runtime preference", async () => {
         isBuiltIn: true,
         isActive: true,
       },
-      [buzzAgent, claude],
+      [buzzAgent, claude, codex],
       "claude",
       RELAY_A,
     );
 
-    assert.equal(input.agentCommand, "claude-code-acp");
+    assert.equal(input.agentCommand, "codex-acp");
     assert.equal(input.harnessOverride, true);
+    assert.equal(input.parallelism, 1);
     assert.equal(input.personaId, starter.personaId);
     assert.equal(input.teamId, WELCOME_TEAM_ID);
     assert.equal(input.relayUrl, RELAY_A);
     assert.equal(input.spawnAfterCreate, false);
     assert.equal(input.startOnAppLaunch, false);
   }
+});
+
+test("Welcome provisioning fails closed when Codex is unavailable", async () => {
+  await assert.rejects(
+    () =>
+      buildWelcomeStarterCreateInput(
+        WELCOME_TEAM_STARTERS[0],
+        {
+          id: "builtin:fizz",
+          displayName: "Fizz",
+          systemPrompt: "Fizz prompt",
+          model: null,
+          provider: null,
+          runtime: null,
+          avatarUrl: null,
+          envVars: {},
+          isBuiltIn: true,
+          isActive: true,
+        },
+        [],
+        "claude",
+        RELAY_A,
+      ),
+    /Codex is required/,
+  );
 });
 
 test("existing Welcome starter rematerializes runtime-specific fields atomically", () => {
@@ -237,11 +272,12 @@ test("existing Welcome starter rematerializes runtime-specific fields atomically
       mcpCommand: "buzz-dev-mcp",
       model: "gpt-5.6-sol",
       provider: null,
+      parallelism: 1,
     },
   );
 });
 
-test("existing Welcome starter clears stale model and provider for Claude", () => {
+test("existing Welcome starter refuses a non-Codex desired runtime", () => {
   const existing = makeAgent({
     personaId: WELCOME_GUIDE_PERSONA_ID,
     agentCommand: "codex-acp",
@@ -250,21 +286,45 @@ test("existing Welcome starter clears stale model and provider for Claude", () =
     provider: "openai",
   });
 
+  assert.throws(
+    () =>
+      welcomeStarterRuntimeUpdate(existing, {
+        name: "Fizz",
+        agentCommand: "claude-agent-acp",
+        agentArgs: [],
+        mcpCommand: "",
+      }),
+    /must use Codex/,
+  );
+});
+
+test("existing Welcome starter repairs unsafe parallelism", () => {
+  const existing = makeAgent({
+    personaId: WELCOME_GUIDE_PERSONA_ID,
+    agentCommand: "codex-acp",
+    agentArgs: [],
+    parallelism: 24,
+  });
+
   assert.deepEqual(
     welcomeStarterRuntimeUpdate(existing, {
       name: "Fizz",
-      agentCommand: "claude-agent-acp",
+      agentCommand: "codex-acp",
       agentArgs: [],
-      mcpCommand: "",
+      mcpCommand: "buzz-dev-mcp",
+      model: null,
+      provider: null,
+      parallelism: 24,
     }),
     {
       pubkey: PUB_A,
-      agentCommand: "claude-agent-acp",
+      agentCommand: "codex-acp",
       harnessOverride: true,
       agentArgs: [],
-      mcpCommand: "",
+      mcpCommand: "buzz-dev-mcp",
       model: null,
       provider: null,
+      parallelism: 1,
     },
   );
 });
@@ -290,6 +350,8 @@ test("existing Welcome starter needs no update when runtime already matches", ()
 });
 
 test("welcome team starter definitions and role identities are stable", () => {
+  assert.equal(MAC_WORKSPACE_WELCOME_RUNTIME_ID, "codex");
+  assert.equal(MAC_WORKSPACE_WELCOME_PARALLELISM, 1);
   assert.equal(WELCOME_TEAM_ID, "builtin-team:welcome");
   assert.deepEqual(WELCOME_TEAM_STARTERS, [
     { name: "Fizz", personaId: "builtin:fizz", role: "lead" },

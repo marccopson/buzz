@@ -1,7 +1,4 @@
-import {
-  buildInstanceInputForDefinition,
-  resolveStartRuntimeForDefinition,
-} from "@/features/agents/lib/instanceInputForDefinition";
+import { buildInstanceInputForDefinition } from "@/features/agents/lib/instanceInputForDefinition";
 import {
   addChannelMembers,
   createManagedAgent,
@@ -24,6 +21,8 @@ export const WELCOME_GUIDE_AGENT_NAME = "Fizz";
 export const WELCOME_GUIDE_PERSONA_ID = "builtin:fizz";
 export const WELCOME_TEAM_ID = "builtin-team:welcome";
 export const WELCOME_GUIDE_INTRO_MARKER = "buzz-welcome-intro.v1";
+export const MAC_WORKSPACE_WELCOME_RUNTIME_ID = "codex";
+export const MAC_WORKSPACE_WELCOME_PARALLELISM = 1;
 const LEGACY_WELCOME_GUIDE_AGENT_NAME = "Kit";
 export const LEGACY_WELCOME_GUIDE_SYSTEM_PROMPT =
   "You are Kit, Sprout's friendly welcome guide. Help new users understand the community, channels, messages, and agents. Keep introductions concise, practical, and warm.";
@@ -210,19 +209,24 @@ export async function buildWelcomeStarterCreateInput(
   starter: WelcomeTeamStarterDefinition,
   persona: AgentPersona,
   runtimes: readonly AcpRuntime[],
-  preferredRuntimeId: string | null,
+  _preferredRuntimeId: string | null,
   relayUrl?: string | null,
 ): Promise<CreateManagedAgentInput> {
-  const { runtime } = resolveStartRuntimeForDefinition(
-    persona,
-    runtimes,
-    preferredRuntimeId,
+  const runtime = runtimes.find(
+    ({ id }) => id === MAC_WORKSPACE_WELCOME_RUNTIME_ID,
   );
+  if (!runtime) {
+    throw new Error(
+      "Codex is required for MAC Workspace welcome agents. Install and authenticate Codex before continuing.",
+    );
+  }
   return {
     ...(await buildInstanceInputForDefinition(persona, runtime)),
     name: starter.name,
     teamId: WELCOME_TEAM_ID,
     relayUrl: relayUrl ?? undefined,
+    harnessOverride: true,
+    parallelism: MAC_WORKSPACE_WELCOME_PARALLELISM,
     spawnAfterCreate: false,
     startOnAppLaunch: false,
     respondTo: "owner-only",
@@ -234,17 +238,24 @@ export function welcomeStarterRuntimeUpdate(
   desired: CreateManagedAgentInput,
 ) {
   if (!desired.agentCommand) return null;
+  const desiredAgentBinary =
+    desired.agentCommand.split(/[\\/]/).at(-1)?.toLowerCase() ?? "";
+  if (!/^codex-acp(?:\.(?:cmd|exe))?$/.test(desiredAgentBinary)) {
+    throw new Error("MAC Workspace welcome agents must use Codex.");
+  }
 
   const desiredArgs = desired.agentArgs ?? [];
   const desiredModel = desired.model ?? null;
   const desiredProvider = desired.provider ?? null;
   const desiredMcpCommand = desired.mcpCommand ?? "";
+  const desiredParallelism = MAC_WORKSPACE_WELCOME_PARALLELISM;
   if (
     existing.agentCommand === desired.agentCommand &&
     existing.agentArgs.join(",") === desiredArgs.join(",") &&
     existing.model === desiredModel &&
     existing.provider === desiredProvider &&
-    existing.mcpCommand === desiredMcpCommand
+    existing.mcpCommand === desiredMcpCommand &&
+    existing.parallelism === desiredParallelism
   ) {
     return null;
   }
@@ -257,6 +268,7 @@ export function welcomeStarterRuntimeUpdate(
     mcpCommand: desiredMcpCommand,
     model: desiredModel,
     provider: desiredProvider,
+    parallelism: desiredParallelism,
   };
 }
 
