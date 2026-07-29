@@ -3,11 +3,77 @@ import 'dart:convert';
 import 'package:buzz/features/control_room/agent_health_provider.dart';
 import 'package:buzz/features/control_room/control_room_page.dart';
 import 'package:buzz/shared/relay/relay_provider.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
 
 import '../../helpers/widget_helpers.dart';
+
+Map<String, dynamic> healthPayload({String sourceStatus = 'fresh'}) {
+  final dimensions = {
+    for (final name in [
+      'alive',
+      'connected',
+      'authenticated',
+      'capable',
+      'working',
+      'fresh',
+      'safe',
+      'recoverable',
+    ])
+      name: {
+        'state': name == 'working' ? 'unknown' : 'pass',
+        'evidence': [name],
+      },
+  };
+  return {
+    'schemaVersion': 'mac-agent-health/v1',
+    'generatedAt': '2026-07-29T06:00:00Z',
+    'authority': {
+      'id': 'brain-vps-health-check',
+      'role': 'authoritative-estate-observer',
+    },
+    'operationalStatus': 'green',
+    'assuranceStatus': 'partial',
+    'assuranceGaps': ['current-run evidence', 'recovery evidence'],
+    'source': {
+      'status': sourceStatus,
+      'maxAgeSeconds': 93600,
+      'estate': {
+        'path': '/root/MAC-Local/reports/infra-check-latest.md',
+        'observedAt': '2026-07-29T06:00:00Z',
+        'ageSeconds': 10,
+        'sha256': 'a' * 64,
+      },
+      'agents': {
+        'path': '/root/MAC-Local/reports/mac-workspace-hermes-latest.md',
+        'observedAt': '2026-07-29T06:00:00Z',
+        'ageSeconds': 10,
+        'sha256': 'b' * 64,
+      },
+    },
+    'nodes': [
+      {
+        'id': 'brain',
+        'name': 'Brain',
+        'status': 'green',
+        'detail': 'Baseline checks OK',
+      },
+    ],
+    'agents': [
+      {
+        'id': 'sammi',
+        'name': 'Sammi',
+        'operationalStatus': 'green',
+        'assuranceStatus': 'partial',
+        'dimensions': dimensions,
+      },
+    ],
+    'components': <Object>[],
+    'issues': <Object>[],
+  };
+}
 
 void main() {
   testWidgets('shows operational state and assurance gaps separately', (
@@ -18,48 +84,7 @@ void main() {
         request.url.toString(),
         'https://forge-do.tailfe35cd.ts.net/api/mac-agent-health/v1',
       );
-      return http.Response(
-        jsonEncode({
-          'schemaVersion': 'mac-agent-health/v1',
-          'generatedAt': '2026-07-29T06:00:00Z',
-          'operationalStatus': 'green',
-          'assuranceStatus': 'partial',
-          'assuranceGaps': ['current-run evidence', 'recovery evidence'],
-          'source': {
-            'status': 'fresh',
-            'estate': {'observedAt': '2026-07-29T06:00:00Z'},
-          },
-          'nodes': [
-            {
-              'id': 'brain',
-              'name': 'Brain',
-              'status': 'green',
-              'detail': 'Baseline checks OK',
-            },
-          ],
-          'agents': [
-            {
-              'id': 'sammi',
-              'name': 'Sammi',
-              'operationalStatus': 'green',
-              'assuranceStatus': 'partial',
-              'dimensions': {
-                'alive': {
-                  'state': 'pass',
-                  'evidence': ['Gateway active'],
-                },
-                'working': {
-                  'state': 'unknown',
-                  'evidence': ['No current-run evidence'],
-                },
-              },
-            },
-          ],
-          'components': <Object>[],
-          'issues': <Object>[],
-        }),
-        200,
-      );
+      return http.Response(jsonEncode(healthPayload()), 200);
     });
     addTearDown(client.close);
 
@@ -82,7 +107,45 @@ void main() {
     expect(find.text('partial'), findsOneWidget);
     expect(find.text('2 known gap(s)'), findsOneWidget);
     expect(find.text('Sammi'), findsOneWidget);
-    expect(find.text('working'), findsOneWidget);
+    expect(find.text('working · Unknown'), findsOneWidget);
+    expect(find.text('alive · Pass'), findsOneWidget);
+  });
+
+  testWidgets('labels stale evidence and every value as last known', (
+    tester,
+  ) async {
+    final client = http_testing.MockClient(
+      (_) async =>
+          http.Response(jsonEncode(healthPayload(sourceStatus: 'stale')), 200),
+    );
+    addTearDown(client.close);
+
+    await tester.pumpWidget(
+      WidgetHelpers.testable(
+        overrides: [
+          relayConfigProvider.overrideWith(
+            () =>
+                _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
+          ),
+          agentHealthHttpClientProvider.overrideWithValue(client),
+        ],
+        child: const ControlRoomPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Evidence stale'), findsWidgets);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('control-room-health-brain')),
+      200,
+    );
+    expect(find.text('Last known: Healthy'), findsWidgets);
+    expect(
+      find.text(
+        'Values below are last-known evidence and are not current health.',
+      ),
+      findsOneWidget,
+    );
   });
 }
 

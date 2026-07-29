@@ -28,6 +28,10 @@ const HEALTH = {
     id: "brain-vps-health-check",
     role: "authoritative-estate-observer",
   },
+  authority: {
+    id: "brain-vps-health-check",
+    role: "authoritative-estate-observer",
+  },
   operationalStatus: "green",
   assuranceStatus: "partial",
   assuranceGaps: [
@@ -36,8 +40,19 @@ const HEALTH = {
   ],
   source: {
     status: "fresh",
-    estate: { observedAt: "2026-07-29T06:00:00Z", ageSeconds: 20 },
-    agents: { observedAt: "2026-07-29T06:00:00Z", ageSeconds: 20 },
+    maxAgeSeconds: 93600,
+    estate: {
+      path: "/root/MAC-Local/reports/infra-check-latest.md",
+      observedAt: "2026-07-29T06:00:00Z",
+      ageSeconds: 20,
+      sha256: "a".repeat(64),
+    },
+    agents: {
+      path: "/root/MAC-Local/reports/mac-workspace-hermes-latest.md",
+      observedAt: "2026-07-29T06:00:00Z",
+      ageSeconds: 20,
+      sha256: "b".repeat(64),
+    },
   },
   nodes: ["Brain", "AVC DO", "Forge DO", "Mac mini"].map((name) => ({
     id: name.toLowerCase().replaceAll(" ", "-"),

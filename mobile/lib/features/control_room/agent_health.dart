@@ -2,7 +2,20 @@ enum HealthStatus { green, amber, red }
 
 enum AssuranceStatus { complete, partial, insufficient }
 
-enum HealthDimensionState { pass, fail, unknown }
+enum HealthDimensionState { pass, warn, fail, unknown }
+
+enum HealthSourceStatus { fresh, stale, invalid }
+
+const _dimensionNames = {
+  'alive',
+  'connected',
+  'authenticated',
+  'capable',
+  'working',
+  'fresh',
+  'safe',
+  'recoverable',
+};
 
 class HealthDimension {
   final HealthDimensionState state;
@@ -14,11 +27,16 @@ class HealthDimension {
     return HealthDimension(
       state: switch (json['state']) {
         'pass' => HealthDimensionState.pass,
+        'warn' => HealthDimensionState.warn,
         'fail' => HealthDimensionState.fail,
         'unknown' => HealthDimensionState.unknown,
         _ => throw const FormatException('Unsupported health dimension state'),
       },
-      evidence: _strings(json['evidence']),
+      evidence: _strings(
+        json['evidence'],
+        'dimension.evidence',
+        nonEmpty: true,
+      ),
     );
   }
 }
@@ -39,14 +57,25 @@ class AgentHealthRecord {
   });
 
   factory AgentHealthRecord.fromJson(Map<String, dynamic> json) {
-    final rawDimensions = _map(json['dimensions']);
+    final rawDimensions = _requiredMap(json['dimensions'], 'agent.dimensions');
+    if (rawDimensions.keys.toSet().difference(_dimensionNames).isNotEmpty ||
+        _dimensionNames.difference(rawDimensions.keys.toSet()).isNotEmpty) {
+      throw const FormatException(
+        'agent.dimensions must contain all health dimensions',
+      );
+    }
     return AgentHealthRecord(
-      id: _text(json['id']),
-      name: _text(json['name']),
+      id: _text(json['id'], 'agent.id'),
+      name: _text(json['name'], 'agent.name'),
       operationalStatus: _status(json['operationalStatus']),
       assuranceStatus: _assurance(json['assuranceStatus']),
       dimensions: rawDimensions.map(
-        (key, value) => MapEntry(key, HealthDimension.fromJson(_map(value))),
+        (key, value) => MapEntry(
+          key,
+          HealthDimension.fromJson(
+            _requiredMap(value, 'agent.dimensions.$key'),
+          ),
+        ),
       ),
     );
   }
@@ -67,19 +96,20 @@ class HealthRecord {
 
   factory HealthRecord.fromJson(Map<String, dynamic> json) {
     return HealthRecord(
-      id: _text(json['id']),
-      name: _text(json['name']),
+      id: _text(json['id'], 'record.id'),
+      name: _text(json['name'], 'record.name'),
       status: _status(json['status']),
-      detail: _text(json['detail']),
+      detail: _text(json['detail'], 'record.detail'),
     );
   }
 }
 
 class AgentHealthSnapshot {
-  final DateTime? generatedAt;
+  final DateTime generatedAt;
   final HealthStatus operationalStatus;
   final AssuranceStatus assuranceStatus;
   final List<String> assuranceGaps;
+  final HealthSourceStatus sourceStatus;
   final DateTime? estateObservedAt;
   final List<HealthRecord> nodes;
   final List<AgentHealthRecord> agents;
@@ -91,6 +121,7 @@ class AgentHealthSnapshot {
     required this.operationalStatus,
     required this.assuranceStatus,
     required this.assuranceGaps,
+    required this.sourceStatus,
     required this.estateObservedAt,
     required this.nodes,
     required this.agents,
@@ -102,21 +133,70 @@ class AgentHealthSnapshot {
     if (json['schemaVersion'] != 'mac-agent-health/v1') {
       throw const FormatException('Unsupported MAC agent-health snapshot');
     }
-    final source = _map(json['source']);
+    final authority = _requiredMap(json['authority'], 'authority');
+    if (authority['id'] != 'brain-vps-health-check' ||
+        authority['role'] != 'authoritative-estate-observer') {
+      throw const FormatException('Unsupported agent-health authority');
+    }
+    final source = _requiredMap(json['source'], 'source');
+    final sourceStatus = switch (source['status']) {
+      'fresh' => HealthSourceStatus.fresh,
+      'stale' => HealthSourceStatus.stale,
+      'invalid' => HealthSourceStatus.invalid,
+      _ => throw const FormatException('Unsupported source status'),
+    };
+    final hasEvidence = source['estate'] != null && source['agents'] != null;
+    if (sourceStatus != HealthSourceStatus.invalid) {
+      final maxAge = _integer(source['maxAgeSeconds'], 'source.maxAgeSeconds');
+      if (maxAge < 60 || !hasEvidence) {
+        throw const FormatException(
+          'Fresh or stale source evidence is incomplete',
+        );
+      }
+    }
+    final estate = source['estate'] == null
+        ? null
+        : _sourceEvidence(source['estate'], 'source.estate');
+    if (source['agents'] != null) {
+      _sourceEvidence(source['agents'], 'source.agents');
+    }
     return AgentHealthSnapshot(
-      generatedAt: DateTime.tryParse(_text(json['generatedAt'])),
+      generatedAt: _timestamp(json['generatedAt'], 'generatedAt'),
       operationalStatus: _status(json['operationalStatus']),
       assuranceStatus: _assurance(json['assuranceStatus']),
-      assuranceGaps: _strings(json['assuranceGaps']),
-      estateObservedAt: DateTime.tryParse(
-        _text(_map(source['estate'])['observedAt']),
-      ),
-      nodes: _maps(json['nodes']).map(HealthRecord.fromJson).toList(),
-      agents: _maps(json['agents']).map(AgentHealthRecord.fromJson).toList(),
-      components: _maps(json['components']).map(HealthRecord.fromJson).toList(),
-      issues: _strings(json['issues']),
+      assuranceGaps: _strings(json['assuranceGaps'], 'assuranceGaps'),
+      sourceStatus: sourceStatus,
+      estateObservedAt: estate?.observedAt,
+      nodes: _maps(json['nodes'], 'nodes').map(HealthRecord.fromJson).toList(),
+      agents: _maps(
+        json['agents'],
+        'agents',
+      ).map(AgentHealthRecord.fromJson).toList(),
+      components: _maps(
+        json['components'],
+        'components',
+      ).map(HealthRecord.fromJson).toList(),
+      issues: _strings(json['issues'], 'issues'),
     );
   }
+}
+
+class _SourceEvidence {
+  final DateTime observedAt;
+
+  const _SourceEvidence(this.observedAt);
+}
+
+_SourceEvidence _sourceEvidence(dynamic value, String label) {
+  final evidence = _requiredMap(value, label);
+  _text(evidence['path'], '$label.path');
+  final observedAt = _timestamp(evidence['observedAt'], '$label.observedAt');
+  _integer(evidence['ageSeconds'], '$label.ageSeconds');
+  final digest = _text(evidence['sha256'], '$label.sha256');
+  if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(digest)) {
+    throw FormatException('$label.sha256 must be a SHA-256 digest');
+  }
+  return _SourceEvidence(observedAt);
 }
 
 Uri agentHealthUri(String relayUrl) {
@@ -150,19 +230,50 @@ AssuranceStatus _assurance(dynamic value) => switch (value) {
   _ => throw const FormatException('Unsupported assurance status'),
 };
 
-Map<String, dynamic> _map(dynamic value) {
-  return value is Map ? Map<String, dynamic>.from(value) : {};
+Map<String, dynamic> _requiredMap(dynamic value, String label) {
+  if (value is! Map || value.keys.any((key) => key is! String)) {
+    throw FormatException('$label must be an object');
+  }
+  return Map<String, dynamic>.from(value);
 }
 
-List<Map<String, dynamic>> _maps(dynamic value) {
-  return value is List ? value.map(_map).toList() : [];
+List<Map<String, dynamic>> _maps(dynamic value, String label) {
+  if (value is! List) {
+    throw FormatException('$label must be an array');
+  }
+  return [
+    for (var index = 0; index < value.length; index += 1)
+      _requiredMap(value[index], '$label[$index]'),
+  ];
 }
 
-List<String> _strings(dynamic value) {
-  if (value is! List || value.any((item) => item is! String)) {
-    throw const FormatException('Expected a string array');
+List<String> _strings(dynamic value, String label, {bool nonEmpty = false}) {
+  if (value is! List ||
+      value.any((item) => item is! String) ||
+      (nonEmpty && value.isEmpty)) {
+    throw FormatException('$label must be a string array');
   }
   return value.cast<String>();
 }
 
-String _text(dynamic value) => value is String ? value : '';
+String _text(dynamic value, String label) {
+  if (value is! String || value.isEmpty) {
+    throw FormatException('$label must be a non-empty string');
+  }
+  return value;
+}
+
+DateTime _timestamp(dynamic value, String label) {
+  final parsed = DateTime.tryParse(_text(value, label));
+  if (parsed == null) {
+    throw FormatException('$label must be a timestamp');
+  }
+  return parsed;
+}
+
+int _integer(dynamic value, String label) {
+  if (value is! int) {
+    throw FormatException('$label must be an integer');
+  }
+  return value;
+}

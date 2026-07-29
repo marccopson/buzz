@@ -59,6 +59,10 @@ class ControlRoomPage extends ConsumerWidget {
               ),
               const SizedBox(height: Grid.md),
               _Summary(snapshot: health),
+              if (health.sourceStatus != HealthSourceStatus.fresh) ...[
+                const SizedBox(height: Grid.md),
+                _SourceWarning(status: health.sourceStatus),
+              ],
               if (health.issues.isNotEmpty) ...[
                 const SizedBox(height: Grid.md),
                 _Issues(issues: health.issues),
@@ -66,15 +70,30 @@ class ControlRoomPage extends ConsumerWidget {
               const SizedBox(height: Grid.lg),
               const _SectionTitle('Estate nodes'),
               const SizedBox(height: Grid.sm),
-              ...health.nodes.map(_HealthCard.new),
+              ...health.nodes.map(
+                (record) => _HealthCard(
+                  record,
+                  current: health.sourceStatus == HealthSourceStatus.fresh,
+                ),
+              ),
               const SizedBox(height: Grid.lg),
               const _SectionTitle('Brain agents'),
               const SizedBox(height: Grid.sm),
-              ...health.agents.map(_AgentCard.new),
+              ...health.agents.map(
+                (agent) => _AgentCard(
+                  agent,
+                  current: health.sourceStatus == HealthSourceStatus.fresh,
+                ),
+              ),
               const SizedBox(height: Grid.lg),
               const _SectionTitle('Core components'),
               const SizedBox(height: Grid.sm),
-              ...health.components.map(_HealthCard.new),
+              ...health.components.map(
+                (record) => _HealthCard(
+                  record,
+                  current: health.sourceStatus == HealthSourceStatus.fresh,
+                ),
+              ),
             ],
           ),
         ),
@@ -90,15 +109,26 @@ class _Summary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isCurrent = snapshot.sourceStatus == HealthSourceStatus.fresh;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: _Panel(
-            icon: _statusIcon(snapshot.operationalStatus),
+            icon: _statusIcon(
+              isCurrent ? snapshot.operationalStatus : HealthStatus.red,
+            ),
             title: 'Operational',
-            value: _statusLabel(snapshot.operationalStatus),
-            detail: 'Updated ${_formatTime(snapshot.generatedAt)}',
+            value: isCurrent
+                ? _statusLabel(snapshot.operationalStatus)
+                : switch (snapshot.sourceStatus) {
+                    HealthSourceStatus.stale => 'Evidence stale',
+                    HealthSourceStatus.invalid => 'Evidence invalid',
+                    HealthSourceStatus.fresh => 'Unavailable',
+                  },
+            detail: isCurrent
+                ? 'Updated ${_formatTime(snapshot.generatedAt)}'
+                : 'Last known ${_formatTime(snapshot.generatedAt)}',
           ),
         ),
         const SizedBox(width: Grid.sm),
@@ -163,8 +193,9 @@ class _Panel extends StatelessWidget {
 
 class _AgentCard extends StatelessWidget {
   final AgentHealthRecord agent;
+  final bool current;
 
-  const _AgentCard(this.agent);
+  const _AgentCard(this.agent, {required this.current});
 
   @override
   Widget build(BuildContext context) {
@@ -185,7 +216,18 @@ class _AgentCard extends StatelessWidget {
                 ),
                 const SizedBox(width: Grid.sm),
                 Expanded(
-                  child: Text(agent.name, style: context.textTheme.titleMedium),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(agent.name, style: context.textTheme.titleMedium),
+                      Text(
+                        current
+                            ? 'Operational ${_statusLabel(agent.operationalStatus)}'
+                            : 'Last known: ${_statusLabel(agent.operationalStatus)}',
+                        style: context.textTheme.labelSmall,
+                      ),
+                    ],
+                  ),
                 ),
                 Text(
                   'Assurance ${agent.assuranceStatus.name}',
@@ -202,10 +244,13 @@ class _AgentCard extends StatelessWidget {
                 return Chip(
                   avatar: Icon(switch (state) {
                     HealthDimensionState.pass => LucideIcons.circleCheck,
+                    HealthDimensionState.warn => LucideIcons.triangleAlert,
                     HealthDimensionState.fail => LucideIcons.triangleAlert,
                     HealthDimensionState.unknown => LucideIcons.circleHelp,
                   }, size: 15),
-                  label: Text(entry.key),
+                  label: Text(
+                    '${entry.key} · ${_dimensionLabel(entry.value.state)}',
+                  ),
                   visualDensity: VisualDensity.compact,
                 );
               }).toList(),
@@ -219,12 +264,14 @@ class _AgentCard extends StatelessWidget {
 
 class _HealthCard extends StatelessWidget {
   final HealthRecord record;
+  final bool current;
 
-  const _HealthCard(this.record);
+  const _HealthCard(this.record, {required this.current});
 
   @override
   Widget build(BuildContext context) {
     return Card(
+      key: ValueKey('control-room-health-${record.id}'),
       margin: const EdgeInsets.only(bottom: Grid.sm),
       child: ListTile(
         leading: Icon(
@@ -233,7 +280,40 @@ class _HealthCard extends StatelessWidget {
         ),
         title: Text(record.name),
         subtitle: Text(record.detail),
-        trailing: Text(_statusLabel(record.status)),
+        trailing: Text(
+          current
+              ? _statusLabel(record.status)
+              : 'Last known: ${_statusLabel(record.status)}',
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceWarning extends StatelessWidget {
+  final HealthSourceStatus status;
+
+  const _SourceWarning({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final label = status == HealthSourceStatus.stale
+        ? 'Evidence stale'
+        : 'Evidence invalid';
+    return Card(
+      color: context.colors.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(Grid.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: context.textTheme.titleSmall),
+            const SizedBox(height: Grid.sm),
+            const Text(
+              'Values below are last-known evidence and are not current health.',
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -314,6 +394,13 @@ IconData _statusIcon(HealthStatus status) => switch (status) {
   HealthStatus.green => LucideIcons.circleCheck,
   HealthStatus.amber => LucideIcons.triangleAlert,
   HealthStatus.red => LucideIcons.circleX,
+};
+
+String _dimensionLabel(HealthDimensionState state) => switch (state) {
+  HealthDimensionState.pass => 'Pass',
+  HealthDimensionState.warn => 'Warning',
+  HealthDimensionState.fail => 'Fail',
+  HealthDimensionState.unknown => 'Unknown',
 };
 
 Color _statusColor(BuildContext context, HealthStatus status) =>

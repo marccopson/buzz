@@ -13,8 +13,10 @@ import {
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
   type AgentHealthRecord,
+  type DimensionState,
   type HealthStatus,
   loadAgentHealth,
+  presentAgentHealth,
 } from "@/features/control-room/lib/agentHealth";
 import { cn } from "@/shared/lib/cn";
 import { Badge } from "@/shared/ui/badge";
@@ -32,6 +34,13 @@ const STATUS_CLASS: Record<HealthStatus, string> = {
   red: "border-destructive/30 bg-destructive/5",
 };
 
+const DIMENSION_LABEL: Record<DimensionState, string> = {
+  pass: "Pass",
+  warn: "Warning",
+  fail: "Fail",
+  unknown: "Unknown",
+};
+
 function formatTimestamp(value?: string): string {
   if (!value) return "Unknown";
   const date = new Date(value);
@@ -44,12 +53,12 @@ function formatTimestamp(value?: string): string {
 
 function StatusIcon({ status }: { status: HealthStatus }) {
   if (status === "green") {
-    return <CheckCircle2 className="h-4 w-4 text-emerald-600" />;
+    return <CheckCircle2 aria-hidden className="h-4 w-4 text-emerald-600" />;
   }
   if (status === "amber") {
-    return <AlertTriangle className="h-4 w-4 text-amber-600" />;
+    return <AlertTriangle aria-hidden className="h-4 w-4 text-amber-600" />;
   }
-  return <AlertTriangle className="h-4 w-4 text-destructive" />;
+  return <AlertTriangle aria-hidden className="h-4 w-4 text-destructive" />;
 }
 
 function AgentCard({ agent }: { agent: AgentHealthRecord }) {
@@ -80,13 +89,30 @@ function AgentCard({ agent }: { agent: AgentHealthRecord }) {
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate text-xs capitalize">{name}</span>
-              {dimension.state === "pass" ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-              ) : dimension.state === "fail" ? (
-                <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
-              ) : (
-                <CircleHelp className="h-3.5 w-3.5 text-muted-foreground" />
-              )}
+              <span className="flex items-center gap-1 text-[0.6875rem] font-medium">
+                {dimension.state === "pass" ? (
+                  <CheckCircle2
+                    aria-hidden
+                    className="h-3.5 w-3.5 text-emerald-600"
+                  />
+                ) : dimension.state === "warn" ? (
+                  <AlertTriangle
+                    aria-hidden
+                    className="h-3.5 w-3.5 text-amber-600"
+                  />
+                ) : dimension.state === "fail" ? (
+                  <AlertTriangle
+                    aria-hidden
+                    className="h-3.5 w-3.5 text-destructive"
+                  />
+                ) : (
+                  <CircleHelp
+                    aria-hidden
+                    className="h-3.5 w-3.5 text-muted-foreground"
+                  />
+                )}
+                {DIMENSION_LABEL[dimension.state]}
+              </span>
             </div>
           </div>
         ))}
@@ -109,6 +135,11 @@ export function ControlRoomScreen() {
     staleTime: 30_000,
   });
   const health = healthQuery.data;
+  const presentation = health
+    ? presentAgentHealth(health, {
+        refreshFailed: healthQuery.isRefetchError,
+      })
+    : null;
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -164,20 +195,31 @@ export function ControlRoomScreen() {
               </p>
             </div>
           ) : null}
+          {presentation?.notice ? (
+            <section
+              className="rounded-xl border border-destructive/30 bg-destructive/5 p-4"
+              data-testid="control-room-data-warning"
+            >
+              <h2 className="text-sm font-semibold">{presentation.label}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {presentation.notice}
+              </p>
+            </section>
+          ) : null}
           {health ? (
             <>
               <section className="grid gap-3 md:grid-cols-2">
                 <div
                   className={cn(
                     "rounded-xl border p-4",
-                    STATUS_CLASS[health.operationalStatus],
+                    STATUS_CLASS[presentation?.status ?? "red"],
                   )}
                   data-testid="control-room-operational"
                 >
                   <div className="flex items-center gap-2">
-                    <StatusIcon status={health.operationalStatus} />
+                    <StatusIcon status={presentation?.status ?? "red"} />
                     <h2 className="font-semibold">
-                      Operational: {STATUS_LABEL[health.operationalStatus]}
+                      Operational: {presentation?.label ?? "Unavailable"}
                     </h2>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
@@ -231,7 +273,9 @@ export function ControlRoomScreen() {
                       <div className="flex items-center justify-between">
                         <Server className="h-4 w-4 text-muted-foreground" />
                         <Badge variant="secondary">
-                          {STATUS_LABEL[node.status]}
+                          {presentation?.current
+                            ? STATUS_LABEL[node.status]
+                            : `Last known: ${STATUS_LABEL[node.status]}`}
                         </Badge>
                       </div>
                       <h3 className="mt-3 font-semibold">{node.name}</h3>
