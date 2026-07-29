@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:buzz/features/cos_user_context/cos_user_context.dart';
 import 'package:buzz/shared/relay/nostr_models.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -19,13 +21,40 @@ void main() {
     int createdAt = 1,
     String secretKey = bridgeSecret,
     String channelId = 'mac',
-    String modules =
-        '["today","my_actions","messages","agents","running_order"]',
+    List<String> modules = const [
+      'today',
+      'my_actions',
+      'messages',
+      'agents',
+      'running_order',
+    ],
+    Map<String, Object?>? content,
   }) {
     final signed = nostr.Event.from(
       kind: EventKind.cosUserContext,
-      content:
-          '{"schema":"mac-workspace/cos-user-context/v1","modules":$modules}',
+      content: jsonEncode(
+        content ??
+            {
+              'schema': 'mac-workspace/cos-user-context/v1',
+              'tenant_slug': 'mac-surfacing',
+              'user': {
+                'id': 42,
+                'name': 'Jake Wherton',
+                'role': 'managing_director',
+                'role_label': 'Managing Director',
+              },
+              'modules': modules,
+              'assistant': modules.contains('assistant')
+                  ? {
+                      'key': 'mac-assistant',
+                      'label': 'MAC Assistant',
+                      'execution': 'brain-vps',
+                      'memory_scope': 'private-channel',
+                    }
+                  : null,
+              'generated_at': '2026-07-29T09:00:00Z',
+            },
+      ),
       tags: [
         ['h', channelId],
         const ['p', assignee],
@@ -74,7 +103,7 @@ void main() {
     );
     expect(
       () => parseCosUserContext(
-        event(modules: '["today","messages"]'),
+        event(modules: const ['today', 'messages']),
         expectedAssignee: assignee,
       ),
       throwsFormatException,
@@ -94,6 +123,97 @@ void main() {
         expectedAssignee: assignee,
       ),
       throwsFormatException,
+    );
+  });
+
+  test('fails closed when canonical identity fields are missing', () {
+    for (final content in [
+      {
+        'schema': 'mac-workspace/cos-user-context/v1',
+        'modules': ['today', 'my_actions', 'messages'],
+      },
+      {
+        'schema': 'mac-workspace/cos-user-context/v1',
+        'tenant_slug': 'MAC Surfacing',
+        'user': {
+          'id': 42,
+          'name': 'Jake Wherton',
+          'role': 'managing_director',
+          'role_label': 'Managing Director',
+        },
+        'modules': ['today', 'my_actions', 'messages'],
+        'assistant': null,
+        'generated_at': '2026-07-29T09:00:00Z',
+      },
+      {
+        'schema': 'mac-workspace/cos-user-context/v1',
+        'tenant_slug': 'mac-surfacing',
+        'user': {
+          'id': null,
+          'name': 'Jake Wherton',
+          'role': 'managing_director',
+          'role_label': 'Managing Director',
+        },
+        'modules': ['today', 'my_actions', 'messages'],
+        'assistant': null,
+        'generated_at': '2026-07-29T09:00:00Z',
+      },
+      {
+        'schema': 'mac-workspace/cos-user-context/v1',
+        'tenant_slug': 'mac-surfacing',
+        'user': {
+          'id': 42,
+          'name': 'Jake Wherton',
+          'role': 'managing_director',
+          'role_label': 'Managing Director',
+        },
+        'modules': ['today', 'my_actions', 'messages'],
+        'assistant': null,
+        'generated_at': ' ',
+      },
+    ]) {
+      expect(
+        () => parseCosUserContext(
+          event(content: content),
+          expectedAssignee: assignee,
+        ),
+        throwsFormatException,
+      );
+    }
+  });
+
+  test('enforces the private assistant boundary', () {
+    final invalidAssistant = {
+      'schema': 'mac-workspace/cos-user-context/v1',
+      'tenant_slug': 'mac-surfacing',
+      'user': {
+        'id': 42,
+        'name': 'Jake Wherton',
+        'role': 'managing_director',
+        'role_label': 'Managing Director',
+      },
+      'modules': ['today', 'my_actions', 'messages', 'assistant'],
+      'assistant': {
+        'key': 'mac-assistant',
+        'label': 'MAC Assistant',
+        'execution': 'on-device',
+        'memory_scope': 'shared',
+      },
+      'generated_at': '2026-07-29T09:00:00Z',
+    };
+    expect(
+      () => parseCosUserContext(
+        event(content: invalidAssistant),
+        expectedAssignee: assignee,
+      ),
+      throwsFormatException,
+    );
+    expect(
+      parseCosUserContext(
+        event(modules: const ['today', 'my_actions', 'messages', 'assistant']),
+        expectedAssignee: assignee,
+      ).hasModule('assistant'),
+      isTrue,
     );
   });
 

@@ -13,6 +13,7 @@ const cosWorkspaceModules = {
   'running_order',
   'agents',
 };
+final _tenantSlug = RegExp(r'^[a-z0-9]+(?:-[a-z0-9]+)*$');
 
 class CosUserContext {
   final String eventId;
@@ -60,6 +61,22 @@ CosUserContext parseCosUserContext(
   if (decoded is! Map || decoded['schema'] != cosUserContextSchema) {
     throw const FormatException('Unsupported COS user-context schema');
   }
+  final tenantSlug = decoded['tenant_slug'];
+  if (tenantSlug is! String ||
+      tenantSlug.length > 63 ||
+      !_tenantSlug.hasMatch(tenantSlug)) {
+    throw const FormatException(
+      'tenant_slug must be a canonical lower-case slug',
+    );
+  }
+  final user = decoded['user'];
+  if (user is! Map ||
+      !_isJsonScalar(user['id']) ||
+      !_isNonEmptyString(user['name']) ||
+      !_isNonEmptyString(user['role']) ||
+      !_isNonEmptyString(user['role_label'])) {
+    throw const FormatException('COS user-context identity is invalid');
+  }
   final rawModules = decoded['modules'];
   if (rawModules is! List ||
       rawModules.any(
@@ -74,6 +91,26 @@ CosUserContext parseCosUserContext(
       !modules.contains('messages')) {
     throw const FormatException('COS user-context modules are invalid');
   }
+  final assistant = decoded['assistant'];
+  final hasAssistant = modules.contains('assistant');
+  if (hasAssistant != (assistant != null)) {
+    throw const FormatException(
+      'assistant must be present exactly when the module is enabled',
+    );
+  }
+  if (assistant != null &&
+      (assistant is! Map ||
+          assistant['key'] != 'mac-assistant' ||
+          !_isNonEmptyString(assistant['label']) ||
+          assistant['execution'] != 'brain-vps' ||
+          assistant['memory_scope'] != 'private-channel')) {
+    throw const FormatException(
+      'Assistant context violates the staff isolation boundary',
+    );
+  }
+  if (!_isNonEmptyString(decoded['generated_at'])) {
+    throw const FormatException('generated_at must be a non-empty string');
+  }
   return CosUserContext(
     eventId: event.id,
     channelId: channelId,
@@ -82,6 +119,12 @@ CosUserContext parseCosUserContext(
     createdAt: event.createdAt,
   );
 }
+
+bool _isJsonScalar(Object? value) =>
+    value is String || value is num || value is bool;
+
+bool _isNonEmptyString(Object? value) =>
+    value is String && value.trim().isNotEmpty;
 
 CosUserContext? selectLatestCosUserContext(
   Iterable<NostrEvent> events, {
