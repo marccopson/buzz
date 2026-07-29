@@ -300,6 +300,9 @@ type E2eConfig = {
     // equals this is treated as a moderation DM (composer disabled). Absent →
     // fail open (no mod-DM detection), matching the Rust command's contract.
     relaySelf?: string | null;
+    /** Test-only secret key for a non-default relaySelf. It must derive the
+     * configured pubkey before relay-owned Workspace group state is signed. */
+    relayPrivateKey?: string;
     /** Exact COS bridge authority returned by the mocked NIP-11 command.
      * Undefined keeps the established trusted mock identity default; null
      * explicitly disables the feature. */
@@ -918,9 +921,10 @@ function createMockCosUserContextEvent(
   const assigneePubkey = getMockMemberPubkey(config).toLowerCase();
   const authorityPubkey =
     config?.mock?.cosFollowUpBridgePubkey === undefined
-      ? DEFAULT_MOCK_IDENTITY.pubkey
+      ? MOCK_COS_BRIDGE_PUBKEY
       : config.mock.cosFollowUpBridgePubkey;
   if (!authorityPubkey) return null;
+  if (authorityPubkey.toLowerCase() !== MOCK_COS_BRIDGE_PUBKEY) return null;
 
   const isAdmin = access === undefined || access === "admin";
   const modules = [
@@ -930,32 +934,93 @@ function createMockCosUserContextEvent(
     "assistant",
     ...(isAdmin ? ["running_order", "agents"] : []),
   ];
-  return createMockEvent(
-    KIND_COS_USER_CONTEXT,
-    JSON.stringify({
-      schema: "mac-workspace/cos-user-context/v1",
-      tenant_slug: "mac-surfacing",
-      user: {
-        id: isAdmin ? 1 : 2,
-        name: isAdmin ? "MAC Workspace Admin" : "MAC Staff Member",
-        role: isAdmin ? "contractor_admin" : "staff",
-        role_label: isAdmin ? "Leadership" : "Staff",
-      },
-      modules,
-      assistant: {
-        key: "mac-assistant",
-        label: "MAC Assistant",
-        execution: "brain-vps",
-        memory_scope: "private-channel",
-      },
-      generated_at: new Date().toISOString(),
-    }),
-    [
-      ["h", STARTER_GENERAL_CHANNEL_ID],
-      ["d", `context:${assigneePubkey}`],
-      ["p", assigneePubkey],
-    ],
-    authorityPubkey,
+  return finalizeEvent(
+    {
+      kind: KIND_COS_USER_CONTEXT,
+      created_at: Math.floor(Date.now() / 1000),
+      content: JSON.stringify({
+        schema: "mac-workspace/cos-user-context/v1",
+        tenant_slug: "mac-surfacing",
+        user: {
+          id: isAdmin ? 1 : 2,
+          name: isAdmin ? "MAC Workspace Admin" : "MAC Staff Member",
+          role: isAdmin ? "contractor_admin" : "staff",
+          role_label: isAdmin ? "Leadership" : "Staff",
+        },
+        modules,
+        assistant: {
+          key: "mac-assistant",
+          label: "MAC Assistant",
+          execution: "brain-vps",
+          memory_scope: "private-channel",
+        },
+        generated_at: new Date().toISOString(),
+      }),
+      tags: [
+        ["h", COS_FOLLOW_UP_CHANNEL_ID],
+        ["d", `context:${assigneePubkey}`],
+        ["p", assigneePubkey],
+      ],
+    },
+    MOCK_COS_BRIDGE_PRIVATE_KEY,
+  );
+}
+
+function getMockRelayPrivateKey(
+  config: E2eConfig | undefined,
+): Uint8Array | null {
+  const relaySelf = config?.mock?.relaySelf;
+  if (relaySelf === undefined) return MOCK_RELAY_PRIVATE_KEY;
+  if (!relaySelf) return null;
+  const privateKey = config?.mock?.relayPrivateKey;
+  if (!privateKey) return null;
+  try {
+    const secretKey = hexToBytes(privateKey);
+    return getPublicKey(secretKey) === relaySelf.toLowerCase()
+      ? secretKey
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function createMockCosFollowUpChannelMetadataEvent(
+  config: E2eConfig | undefined,
+): RelayEvent | null {
+  const relayPrivateKey = getMockRelayPrivateKey(config);
+  if (!relayPrivateKey) return null;
+  return finalizeEvent(
+    {
+      kind: 39000,
+      created_at: Math.floor(Date.now() / 1000),
+      content: "",
+      tags: [
+        ["d", COS_FOLLOW_UP_CHANNEL_ID],
+        ["private"],
+        ["name", "cos-follow-up"],
+      ],
+    },
+    relayPrivateKey,
+  );
+}
+
+function createMockCosFollowUpChannelMembershipEvent(
+  config: E2eConfig | undefined,
+): RelayEvent | null {
+  const relayPrivateKey = getMockRelayPrivateKey(config);
+  if (!relayPrivateKey) return null;
+  return finalizeEvent(
+    {
+      kind: 39002,
+      created_at: Math.floor(Date.now() / 1000),
+      content: "",
+      tags: [
+        ["d", COS_FOLLOW_UP_CHANNEL_ID],
+        ["p", MOCK_COS_BRIDGE_PUBKEY, "", "owner"],
+        ["p", getMockMemberPubkey(config).toLowerCase(), "", "member"],
+      ],
+    },
+    relayPrivateKey,
   );
 }
 
@@ -1297,6 +1362,10 @@ const DEFAULT_MOCK_IDENTITY = {
   pubkey: "deadbeef".repeat(8),
   display_name: "npub1mock...",
 };
+const MOCK_COS_BRIDGE_PRIVATE_KEY = hexToBytes("04".repeat(32));
+const MOCK_COS_BRIDGE_PUBKEY = getPublicKey(MOCK_COS_BRIDGE_PRIVATE_KEY);
+const MOCK_RELAY_PRIVATE_KEY = hexToBytes("05".repeat(32));
+const MOCK_RELAY_PUBKEY = getPublicKey(MOCK_RELAY_PRIVATE_KEY);
 const DEFAULT_REAL_IDENTITY = {
   privateKey:
     "3dbaebadb5dfd777ff25149ee230d907a15a9e1294b40b830661e65bb42f6c03",
@@ -1323,6 +1392,7 @@ const OWNED_RELAY_AGENT_PUBKEY =
 const MOCK_IDENTITY_PUBKEY = DEFAULT_MOCK_IDENTITY.pubkey;
 const STARTER_GENERAL_CHANNEL_ID = "9a1657ac-f7aa-5db0-b632-d8bbeb6dfb50";
 const STARTER_WELCOME_CHANNEL_ID = "5f0b1b3c-2a37-5366-9b8c-31a4b21d8e77";
+const COS_FOLLOW_UP_CHANNEL_ID = "4fe3a809-b4fd-4b67-a5ca-550a3e425bd4";
 const STARTER_GENERAL_CHANNEL_NAME = "general";
 const STARTER_WELCOME_CHANNEL_NAME = "welcome-everyone";
 
@@ -4079,18 +4149,28 @@ function emitMockChannelMessage(
   id?: string,
 ) {
   const eventKind = kind ?? 9;
+  const isCosBridgeProjection =
+    eventKind === 37010 ||
+    eventKind === 47011 ||
+    (eventKind === KIND_DELETION &&
+      (extraTags?.some((tag) => tag[0] === "item") ?? false));
+  const authorPubkey =
+    pubkey ??
+    (isCosBridgeProjection
+      ? MOCK_COS_BRIDGE_PUBKEY
+      : DEFAULT_MOCK_IDENTITY.pubkey);
   if (!parentEventId) {
     const tags = buildTopLevelMessageTags(
       channelId,
       mentionPubkeys,
-      pubkey ?? DEFAULT_MOCK_IDENTITY.pubkey,
+      authorPubkey,
     );
     if (extraTags) tags.push(...extraTags);
     const event = createMockEvent(
       eventKind,
       content,
       tags,
-      pubkey,
+      authorPubkey,
       createdAt,
       id,
     );
@@ -4109,7 +4189,6 @@ function emitMockChannelMessage(
         rootEventId: null,
       };
   const rootEventId = parentThread.rootEventId ?? parentEventId;
-  const authorPubkey = pubkey ?? DEFAULT_MOCK_IDENTITY.pubkey;
   const tags = buildReplyMessageTags(
     channelId,
     authorPubkey,
@@ -9043,6 +9122,7 @@ function sendToMockSocket(args: {
       const requestedAssignees = new Set(
         (filter["#p"] ?? []).map((pubkey) => pubkey.toLowerCase()),
       );
+      const requestedChannels = new Set(filter["#h"] ?? []);
       const matches =
         contextEvent !== null &&
         (requestedAuthors.size === 0 ||
@@ -9058,6 +9138,11 @@ function sendToMockSocket(args: {
             tag[0] === "p" &&
             (requestedAssignees.size === 0 ||
               requestedAssignees.has(tag[1].toLowerCase())),
+        ) &&
+        contextEvent.tags.some(
+          (tag) =>
+            tag[0] === "h" &&
+            (requestedChannels.size === 0 || requestedChannels.has(tag[1])),
         );
       const respond = () => {
         if (matches) {
@@ -9071,6 +9156,42 @@ function sendToMockSocket(args: {
       } else {
         respond();
       }
+      return;
+    }
+
+    if (
+      filter.kinds?.includes(39000) &&
+      filter["#d"]?.includes(COS_FOLLOW_UP_CHANNEL_ID)
+    ) {
+      const metadata = createMockCosFollowUpChannelMetadataEvent(getConfig());
+      if (metadata) {
+        sendWsText(socket.handler, ["EVENT", subId, metadata]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
+      return;
+    }
+
+    if (
+      filter.kinds?.includes(39002) &&
+      filter["#d"]?.includes(COS_FOLLOW_UP_CHANNEL_ID)
+    ) {
+      const membership = createMockCosFollowUpChannelMembershipEvent(
+        getConfig(),
+      );
+      const requestedAssignees = new Set(
+        (filter["#p"] ?? []).map((pubkey) => pubkey.toLowerCase()),
+      );
+      if (
+        membership !== null &&
+        (requestedAssignees.size === 0 ||
+          membership.tags.some(
+            (tag) =>
+              tag[0] === "p" && requestedAssignees.has(tag[1].toLowerCase()),
+          ))
+      ) {
+        sendWsText(socket.handler, ["EVENT", subId, membership]);
+      }
+      sendWsText(socket.handler, ["EOSE", subId]);
       return;
     }
 
@@ -11299,10 +11420,12 @@ export function maybeInstallE2eTauriMocks() {
             ),
           );
         }
-        return activeConfig?.mock?.relaySelf ?? null;
+        return activeConfig?.mock?.relaySelf === undefined
+          ? MOCK_RELAY_PUBKEY
+          : activeConfig.mock.relaySelf;
       case "get_cos_follow_up_bridge_pubkey":
         return activeConfig?.mock?.cosFollowUpBridgePubkey === undefined
-          ? DEFAULT_MOCK_IDENTITY.pubkey
+          ? MOCK_COS_BRIDGE_PUBKEY
           : activeConfig.mock.cosFollowUpBridgePubkey;
       case "archive_identity":
       case "unarchive_identity":

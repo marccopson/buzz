@@ -1,6 +1,7 @@
 import {
   Activity,
   Bot,
+  Gauge,
   FolderGit2,
   Inbox,
   ListChecks,
@@ -31,6 +32,7 @@ type SidebarSelectedView =
   | "pulse"
   | "projects"
   | "running-order"
+  | "control-room"
   | "my-actions";
 
 type AppSidebarPinnedHeaderProps = {
@@ -50,6 +52,7 @@ type AppSidebarPinnedHeaderProps = {
 type AppSidebarPrimaryMenuProps = {
   homeBadgeCount: number;
   onSelectAgents: () => void;
+  onSelectControlRoom: () => void;
   onSelectHome: () => void;
   onSelectMyActions: () => void;
   onSelectProjects: () => void;
@@ -99,6 +102,7 @@ export function AppSidebarPinnedHeader({
 export function AppSidebarPrimaryMenu({
   homeBadgeCount,
   onSelectAgents,
+  onSelectControlRoom,
   onSelectHome,
   onSelectMyActions,
   onSelectProjects,
@@ -110,10 +114,13 @@ export function AppSidebarPrimaryMenu({
   workspaceModules,
 }: AppSidebarPrimaryMenuProps) {
   const hasProjectedContext = Array.isArray(workspaceModules);
+  const canUseMyActions =
+    hasProjectedContext && workspaceModules.includes("my_actions");
   const canUseAgents =
     !hasProjectedContext || workspaceModules.includes("agents");
   const canUseRunningOrder =
     !hasProjectedContext || workspaceModules.includes("running_order");
+  const canUseControlRoom = canUseAgents && canUseRunningOrder;
   const canUseTechnicalTools = canUseAgents || canUseRunningOrder;
 
   return (
@@ -154,18 +161,20 @@ export function AppSidebarPrimaryMenu({
             </SidebarMenuBadge>
           ) : null}
         </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            data-testid="open-my-actions-view"
-            isActive={selectedView === "my-actions"}
-            onClick={onSelectMyActions}
-            tooltip="My Actions"
-            type="button"
-          >
-            <ListTodo className="h-4 w-4" />
-            <SidebarMenuLabel>My Actions</SidebarMenuLabel>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
+        {canUseMyActions ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="open-my-actions-view"
+              isActive={selectedView === "my-actions"}
+              onClick={onSelectMyActions}
+              tooltip="My Actions"
+              type="button"
+            >
+              <ListTodo className="h-4 w-4" />
+              <SidebarMenuLabel>My Actions</SidebarMenuLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null}
         {canUseTechnicalTools ? (
           <FeatureGate feature="pulse">
             <SidebarMenuItem>
@@ -209,6 +218,20 @@ export function AppSidebarPrimaryMenu({
             >
               <ListChecks className="h-4 w-4" />
               <SidebarMenuLabel>COS Running Order</SidebarMenuLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null}
+        {canUseControlRoom ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="open-control-room-view"
+              isActive={selectedView === "control-room"}
+              onClick={onSelectControlRoom}
+              tooltip="Control Room"
+              type="button"
+            >
+              <Gauge className="h-4 w-4" />
+              <SidebarMenuLabel>Control Room</SidebarMenuLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
         ) : null}

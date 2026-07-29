@@ -10,8 +10,10 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../../shared/theme/theme.dart';
 import '../activity/activity_page.dart';
 import '../channels/channels_page.dart';
+import '../control_room/control_room_page.dart';
 import '../cos_running_order/cos_running_order_page.dart';
 import '../cos_follow_up/cos_follow_up_page.dart';
+import '../cos_user_context/cos_user_context_provider.dart';
 import '../search/search_page.dart';
 
 class HomePage extends HookConsumerWidget {
@@ -31,50 +33,69 @@ class HomePage extends HookConsumerWidget {
   static const double _fabClearance = _tabBarHeight + _tabBarBottomGap;
   static const Duration _tabIconWeightDuration = Duration(milliseconds: 120);
 
-  static const _destinations = [
-    _HomeDestination(
-      icon: LucideIcons.house300,
-      selectedIcon: LucideIcons.house500,
-      label: 'Home',
-    ),
-    _HomeDestination(
-      icon: LucideIcons.inbox300,
-      selectedIcon: LucideIcons.inbox500,
-      label: 'Activity',
-    ),
-    _HomeDestination(
-      icon: LucideIcons.search300,
-      selectedIcon: LucideIcons.search500,
-      label: 'Search',
-    ),
-    _HomeDestination(
-      icon: LucideIcons.listChecks300,
-      selectedIcon: LucideIcons.listChecks500,
-      label: 'COS',
-    ),
-    _HomeDestination(
-      icon: LucideIcons.listTodo300,
-      selectedIcon: LucideIcons.listTodo500,
-      label: 'My Actions',
-    ),
-  ];
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tabIndex = useState(0);
-    final systemBottomInset = MediaQuery.paddingOf(context).bottom;
-    final navigationBarWidth = _floatingTabBarWidth(
-      MediaQuery.sizeOf(context).width,
-      _destinations.length,
+    final workspaceContext = currentCosUserContext(
+      ref.watch(cosUserContextProvider),
     );
-
-    final pages = [
+    final destinations = <_HomeDestination>[
+      const _HomeDestination(
+        icon: LucideIcons.house300,
+        selectedIcon: LucideIcons.house500,
+        label: 'Home',
+      ),
+      const _HomeDestination(
+        icon: LucideIcons.inbox300,
+        selectedIcon: LucideIcons.inbox500,
+        label: 'Activity',
+      ),
+      const _HomeDestination(
+        icon: LucideIcons.search300,
+        selectedIcon: LucideIcons.search500,
+        label: 'Search',
+      ),
+      if (workspaceContext?.canUseControlRoom == true)
+        const _HomeDestination(
+          icon: LucideIcons.gauge300,
+          selectedIcon: LucideIcons.gauge500,
+          label: 'Control',
+        )
+      else if (workspaceContext?.hasModule('running_order') == true)
+        const _HomeDestination(
+          icon: LucideIcons.listChecks300,
+          selectedIcon: LucideIcons.listChecks500,
+          label: 'COS',
+        ),
+      if (workspaceContext?.hasModule('my_actions') == true)
+        const _HomeDestination(
+          icon: LucideIcons.listTodo300,
+          selectedIcon: LucideIcons.listTodo500,
+          label: 'My Actions',
+        ),
+    ];
+    final pages = <Widget>[
       ChannelsPage(settingsPageBuilder: settingsPageBuilder),
       const ActivityPage(),
       const SearchPage(),
-      const CosRunningOrderPage(),
-      const CosFollowUpPage(),
+      if (workspaceContext?.canUseControlRoom == true)
+        const ControlRoomPage()
+      else if (workspaceContext?.hasModule('running_order') == true)
+        const CosRunningOrderPage(),
+      if (workspaceContext?.hasModule('my_actions') == true)
+        const CosFollowUpPage(),
     ];
+    useEffect(() {
+      if (tabIndex.value >= destinations.length) {
+        tabIndex.value = 0;
+      }
+      return null;
+    }, [destinations.length]);
+    final systemBottomInset = MediaQuery.paddingOf(context).bottom;
+    final navigationBarWidth = _floatingTabBarWidth(
+      MediaQuery.sizeOf(context).width,
+      destinations.length,
+    );
 
     return Scaffold(
       // Keep the floating navigation and Home quick actions anchored while the
@@ -114,7 +135,7 @@ class HomePage extends HookConsumerWidget {
           unawaited(HapticFeedback.selectionClick());
           tabIndex.value = i;
         },
-        destinations: _destinations,
+        destinations: destinations,
       ),
     );
   }

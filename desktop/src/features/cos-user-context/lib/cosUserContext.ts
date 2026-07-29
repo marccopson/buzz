@@ -1,7 +1,10 @@
 import type { RelayEvent } from "@/shared/api/types";
 import { KIND_COS_USER_CONTEXT } from "@/shared/constants/kinds";
+import { verifyEvent } from "nostr-tools/pure";
 
 export const COS_USER_CONTEXT_SCHEMA = "mac-workspace/cos-user-context/v1";
+const KIND_NIP29_GROUP_METADATA = 39000;
+const KIND_NIP29_GROUP_MEMBERS = 39002;
 
 export type CosWorkspaceModule =
   | "today"
@@ -44,7 +47,6 @@ const VALID_MODULES = new Set<CosWorkspaceModule>([
   "running_order",
   "agents",
 ]);
-const REQUIRED_MODULES = ["today", "my_actions", "messages"] as const;
 const TENANT_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 function record(value: unknown): JsonRecord {
@@ -71,6 +73,90 @@ function exactlyOneTag(event: RelayEvent, name: string): string {
   return values[0];
 }
 
+function hasValidSignature(event: RelayEvent): boolean {
+  try {
+    return verifyEvent({
+      id: event.id,
+      pubkey: event.pubkey,
+      created_at: event.created_at,
+      kind: event.kind,
+      tags: event.tags.map((tag) => [...tag]),
+      content: event.content,
+      sig: event.sig,
+    });
+  } catch {
+    return false;
+  }
+}
+
+function retainLatestReplaceable(
+  current: RelayEvent | undefined,
+  candidate: RelayEvent,
+): RelayEvent {
+  if (!current) return candidate;
+  if (candidate.created_at !== current.created_at) {
+    return candidate.created_at > current.created_at ? candidate : current;
+  }
+  return candidate.id.localeCompare(current.id) < 0 ? candidate : current;
+}
+
+function latestByCoordinate(
+  events: RelayEvent[],
+  expectedKind: number,
+  trustedRelayPubkey: string,
+): Map<string, RelayEvent> {
+  const result = new Map<string, RelayEvent>();
+  for (const event of events) {
+    if (
+      event.kind !== expectedKind ||
+      event.pubkey.toLowerCase() !== trustedRelayPubkey.toLowerCase() ||
+      !hasValidSignature(event)
+    ) {
+      continue;
+    }
+    let coordinate: string;
+    try {
+      coordinate = exactlyOneTag(event, "d");
+    } catch {
+      continue;
+    }
+    result.set(
+      coordinate,
+      retainLatestReplaceable(result.get(coordinate), event),
+    );
+  }
+  return result;
+}
+
+function isPrivateMetadata(event: RelayEvent): boolean {
+  return event.tags.some(
+    (tag) =>
+      tag[0] === "private" || (tag[0] === "visibility" && tag[1] === "private"),
+  );
+}
+
+function hasExactFollowUpMembership(
+  event: RelayEvent,
+  assigneePubkey: string,
+  trustedBridgePubkey: string,
+): boolean {
+  const roles = new Map<string, string>();
+  for (const tag of event.tags) {
+    if (tag[0] !== "p" || typeof tag[1] !== "string") continue;
+    const pubkey = tag[1].toLowerCase();
+    if (roles.has(pubkey)) return false;
+    roles.set(pubkey, tag[3] || "member");
+  }
+  const assignee = assigneePubkey.toLowerCase();
+  const bridge = trustedBridgePubkey.toLowerCase();
+  return (
+    assignee !== bridge &&
+    roles.size === 2 &&
+    roles.get(bridge) === "owner" &&
+    roles.get(assignee) === "member"
+  );
+}
+
 function parseModules(value: unknown): CosWorkspaceModule[] {
   if (!Array.isArray(value)) {
     throw new Error("modules must be an array");
@@ -87,22 +173,26 @@ function parseModules(value: unknown): CosWorkspaceModule[] {
   if (new Set(modules).size !== modules.length) {
     throw new Error("modules contains duplicates");
   }
-  for (const required of REQUIRED_MODULES) {
-    if (!modules.includes(required)) {
-      throw new Error(`modules must include ${required}`);
-    }
-  }
   return modules;
 }
 
 export function parseCosUserContext(
   event: RelayEvent,
   expectedAssignee?: string,
+  expectedChannelId?: string,
 ): CosUserContext {
+  // Verify a fresh structural copy so nostr-tools cannot reuse a cached
+  // verifiedSymbol from a previously verified, subsequently mutated object.
+  if (!hasValidSignature(event)) {
+    throw new Error("COS user context signature is invalid");
+  }
   if (event.kind !== KIND_COS_USER_CONTEXT) {
     throw new Error("Expected a COS user context event");
   }
   const channelId = exactlyOneTag(event, "h");
+  if (expectedChannelId && channelId !== expectedChannelId) {
+    throw new Error("COS user context belongs to a different channel");
+  }
   const assigneePubkey = exactlyOneTag(event, "p").toLowerCase();
   if (exactlyOneTag(event, "d") !== `context:${assigneePubkey}`) {
     throw new Error("COS user context coordinate must bind the identity");
@@ -176,13 +266,18 @@ export function selectLatestCosUserContext(
   events: RelayEvent[],
   assigneePubkey: string,
   trustedBridgePubkey: string,
+  expectedChannelId?: string,
 ): CosUserContext | null {
   const trustedAuthor = trustedBridgePubkey.toLowerCase();
   let latest: CosUserContext | null = null;
   for (const event of events) {
     if (event.pubkey.toLowerCase() !== trustedAuthor) continue;
     try {
-      const candidate = parseCosUserContext(event, assigneePubkey);
+      const candidate = parseCosUserContext(
+        event,
+        assigneePubkey,
+        expectedChannelId,
+      );
       if (
         !latest ||
         candidate.createdAt > latest.createdAt ||
@@ -198,9 +293,90 @@ export function selectLatestCosUserContext(
   return latest;
 }
 
+export function cosUserContextChannelCandidates(
+  events: RelayEvent[],
+  assigneePubkey: string,
+  trustedBridgePubkey: string,
+): string[] {
+  const trustedAuthor = trustedBridgePubkey.toLowerCase();
+  const channels = new Set<string>();
+  for (const event of events) {
+    if (event.pubkey.toLowerCase() !== trustedAuthor) continue;
+    try {
+      channels.add(parseCosUserContext(event, assigneePubkey).channelId);
+    } catch {
+      // Only structurally valid bridge projections may nominate a channel.
+    }
+  }
+  return [...channels].sort();
+}
+
+/**
+ * Resolve the one current private COS identity channel visible in this relay
+ * workspace. A context event cannot grant modules merely by being newest: its
+ * `h` must point at a private group whose latest membership snapshot contains
+ * exactly the trusted bridge owner and the mapped person.
+ */
+export function resolveAuthoritativeCosUserContextChannel({
+  candidateChannelIds,
+  metadataEvents,
+  membershipEvents,
+  assigneePubkey,
+  trustedBridgePubkey,
+  trustedRelayPubkey,
+}: {
+  candidateChannelIds: string[];
+  metadataEvents: RelayEvent[];
+  membershipEvents: RelayEvent[];
+  assigneePubkey: string;
+  trustedBridgePubkey: string;
+  trustedRelayPubkey: string;
+}): string | null {
+  const metadata = latestByCoordinate(
+    metadataEvents,
+    KIND_NIP29_GROUP_METADATA,
+    trustedRelayPubkey,
+  );
+  const memberships = latestByCoordinate(
+    membershipEvents,
+    KIND_NIP29_GROUP_MEMBERS,
+    trustedRelayPubkey,
+  );
+  const valid = [...new Set(candidateChannelIds)].filter((channelId) => {
+    const channelMetadata = metadata.get(channelId);
+    const channelMembership = memberships.get(channelId);
+    return (
+      channelMetadata !== undefined &&
+      isPrivateMetadata(channelMetadata) &&
+      channelMembership !== undefined &&
+      hasExactFollowUpMembership(
+        channelMembership,
+        assigneePubkey,
+        trustedBridgePubkey,
+      )
+    );
+  });
+  return valid.length === 1 ? valid[0] : null;
+}
+
 export function hasCosWorkspaceModule(
   context: CosUserContext | null | undefined,
   module: CosWorkspaceModule,
 ): boolean {
   return context?.modules.includes(module) ?? false;
+}
+
+export function currentCosUserContext({
+  data,
+  isError,
+  isFetching,
+  isPending,
+}: {
+  data: CosUserContext | null | undefined;
+  isError: boolean;
+  isFetching: boolean;
+  isPending: boolean;
+}): CosUserContext | null {
+  if (isError || isFetching || isPending) return null;
+  return data ?? null;
 }

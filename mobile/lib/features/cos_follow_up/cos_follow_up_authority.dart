@@ -34,6 +34,17 @@ String? parseCosFollowUpBridgePubkey(Object? document) {
   return pubkey;
 }
 
+/// Strictly parses the relay's NIP-11 `self` signing key.
+///
+/// Missing or malformed relay identity disables any feature that relies on
+/// relay-authored NIP-29 state.
+String? parseRelaySelfPubkey(Object? document) {
+  if (document is! Map) return null;
+  final pubkey = document['self'];
+  if (pubkey is! String || !_isValidNostrXOnlyPubkey(pubkey)) return null;
+  return pubkey;
+}
+
 bool _isValidNostrXOnlyPubkey(String value) {
   if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(value)) return false;
   try {
@@ -61,6 +72,22 @@ final cosFollowUpBridgePubkeyProvider = FutureProvider<String?>((ref) async {
         .timeout(const Duration(seconds: 5));
     if (response.statusCode < 200 || response.statusCode >= 300) return null;
     return parseCosFollowUpBridgePubkey(jsonDecode(response.body));
+  } catch (_) {
+    return null;
+  }
+});
+
+final relaySelfPubkeyProvider = FutureProvider<String?>((ref) async {
+  final relayUrl = ref.watch(relayConfigProvider).baseUrl;
+  final uri = _relayInformationUri(relayUrl);
+  if (uri == null) return null;
+  try {
+    final response = await ref
+        .read(cosFollowUpAuthorityHttpClientProvider)
+        .get(uri, headers: const {'Accept': 'application/nostr+json'})
+        .timeout(const Duration(seconds: 5));
+    if (response.statusCode < 200 || response.statusCode >= 300) return null;
+    return parseRelaySelfPubkey(jsonDecode(response.body));
   } catch (_) {
     return null;
   }

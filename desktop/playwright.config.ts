@@ -83,6 +83,7 @@ export default defineConfig({
         "**/thread-focus-mode.spec.ts",
         "**/animated-avatar.spec.ts",
         "**/cos-running-order.spec.ts",
+        "**/control-room.spec.ts",
         "**/cos-my-actions.spec.ts",
         "**/cos-workspace-sidebar.spec.ts",
         "**/reminders.spec.ts",

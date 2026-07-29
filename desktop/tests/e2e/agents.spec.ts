@@ -1341,6 +1341,7 @@ test("share access controls include the selected memories", async ({
 test("people sharing excludes the moderation recipient", async ({ page }) => {
   await openSafetyShareDialog(page, {
     relaySelf: TEST_IDENTITIES.charlie.pubkey,
+    relayPrivateKey: TEST_IDENTITIES.charlie.privateKey,
     relaySelfDelayMs: 800,
   });
 

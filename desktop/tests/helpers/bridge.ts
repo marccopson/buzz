@@ -132,6 +132,9 @@ type MockBridgeOptions = {
   projectHeadBranch?: string;
   /** Relay NIP-11 identity used to sign authoritative repository state. */
   relaySelf?: string | null;
+  /** Test-only secret key for a non-default relaySelf. The mock validates that
+   * it derives relaySelf before signing relay-owned Workspace group state. */
+  relayPrivateKey?: string;
   /** Relay NIP-11 COS follow-up bridge authority. Null disables the feature. */
   cosFollowUpBridgePubkey?: string | null;
   /** Trusted COS Workspace context returned by the mock relay. Defaults to admin. */

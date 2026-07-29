@@ -126,6 +126,7 @@ export function AppShell() {
   const {
     goAgents,
     goChannel,
+    goControlRoom,
     goHome,
     goMyActions,
     goNewMessage,
@@ -152,7 +153,6 @@ export function AppShell() {
     selectedChannelId,
     selectedView,
   });
-  // Settings lives in history so back returns to the previous app entry.
   const settingsOpen = location.pathname === "/settings";
   const locationSearchSection = (location.search as { section?: unknown })
     .section;
@@ -172,7 +172,6 @@ export function AppShell() {
   );
   usePersonaSync(identityQuery.data?.pubkey);
   useAgentsDataRefresh();
-  // Chunk F: auto-restart drifted idle agents (per-agent opt-out, default ON).
   useAutoRestartPolicy();
   // Owner-global observer ingestion: receives + decrypts agent observer
   // frames and keeps derived active-turn liveness in sync app-wide, so no
@@ -875,6 +874,7 @@ export function AppShell() {
                             await goChannel(directMessage.id);
                           }}
                           onSelectAgents={() => void goAgents()}
+                          onSelectControlRoom={() => void goControlRoom()}
                           onSelectChannel={(channelId) =>
                             void goChannel(channelId)
                           }

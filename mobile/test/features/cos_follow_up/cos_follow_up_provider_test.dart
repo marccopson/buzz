@@ -5,10 +5,13 @@ import 'package:buzz/features/cos_follow_up/cos_follow_up.dart';
 import 'package:buzz/features/cos_follow_up/cos_follow_up_authority.dart';
 import 'package:buzz/features/cos_follow_up/cos_follow_up_notification_service.dart';
 import 'package:buzz/features/cos_follow_up/cos_follow_up_provider.dart';
+import 'package:buzz/features/cos_user_context/cos_user_context.dart';
+import 'package:buzz/features/cos_user_context/cos_user_context_provider.dart';
 import 'package:buzz/shared/relay/relay.dart';
 import 'package:buzz/shared/theme/theme_provider.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:hooks_riverpod/misc.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -275,6 +278,48 @@ void main() {
     expect(session.activeItemListeners, 1);
     expect(session.activeRemovalListeners, 0);
   });
+
+  test(
+    'role revocation disposes subscriptions and blocks queued notifications',
+    () async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      final session = _FakeRelaySession();
+      final sink = _ControlledNotificationSink();
+      final container = _container(prefs: prefs, session: session, sink: sink);
+      addTearDown(container.dispose);
+
+      container.read(cosFollowUpProvider);
+      await _waitUntil(() => session.itemListener != null);
+      session.itemListener!(_itemEvent());
+      await _waitUntil(() => sink.calls == 1);
+
+      container.updateOverrides(
+        _overrides(
+          prefs: prefs,
+          session: session,
+          sink: sink,
+          context: const AsyncData(null),
+        ),
+      );
+      await _waitUntil(
+        () =>
+            container.read(cosFollowUpProvider).items.isEmpty &&
+            session.activeItemListeners == 0 &&
+            session.activeRemovalListeners == 0,
+      );
+
+      sink.completion.complete(CosFollowUpNotificationDelivery.shown);
+      await container
+          .read(cosFollowUpProvider.notifier)
+          .retryPendingNotifications();
+      await _flushAsync();
+
+      expect(sink.calls, 1);
+      expect(_storedItems(prefs, seenKey), isNot(contains('item-1')));
+      expect(prefs.getString(pendingKey), isNotNull);
+    },
+  );
 }
 
 Set<String> _storedItems(SharedPreferences prefs, String key) {
@@ -287,18 +332,38 @@ ProviderContainer _container({
   required SharedPreferences prefs,
   required _FakeRelaySession session,
   required CosFollowUpNotificationSink sink,
-}) => ProviderContainer(
-  overrides: [
-    savedPrefsProvider.overrideWithValue(prefs),
-    relayConfigProvider.overrideWith(_FakeRelayConfig.new),
-    relaySessionProvider.overrideWith(() => session),
-    myPubkeyProvider.overrideWithValue('assignee'),
-    cosFollowUpBridgePubkeyProvider.overrideWithValue(
-      const AsyncData('bridge'),
+  AsyncValue<CosUserContext?> context = const AsyncData(
+    CosUserContext(
+      eventId: 'context-event',
+      channelId: '11111111-1111-1111-1111-111111111111',
+      assigneePubkey: 'assignee',
+      modules: ['today', 'my_actions', 'messages'],
+      createdAt: 1,
     ),
-    cosFollowUpNotificationSinkProvider.overrideWithValue(sink),
-  ],
+  ),
+}) => ProviderContainer(
+  overrides: _overrides(
+    prefs: prefs,
+    session: session,
+    sink: sink,
+    context: context,
+  ),
 );
+
+List<Override> _overrides({
+  required SharedPreferences prefs,
+  required _FakeRelaySession session,
+  required CosFollowUpNotificationSink sink,
+  required AsyncValue<CosUserContext?> context,
+}) => [
+  savedPrefsProvider.overrideWithValue(prefs),
+  relayConfigProvider.overrideWith(_FakeRelayConfig.new),
+  relaySessionProvider.overrideWith(() => session),
+  myPubkeyProvider.overrideWithValue('assignee'),
+  cosUserContextProvider.overrideWithValue(context),
+  cosFollowUpBridgePubkeyProvider.overrideWithValue(const AsyncData('bridge')),
+  cosFollowUpNotificationSinkProvider.overrideWithValue(sink),
+];
 
 Future<void> _waitUntil(
   bool Function() predicate, {

@@ -38,6 +38,13 @@ test("deriveShellRoute selects the COS running order", () => {
   });
 });
 
+test("deriveShellRoute selects the MAC Control Room", () => {
+  assert.deepEqual(deriveShellRoute("/control-room"), {
+    selectedChannelId: null,
+    selectedView: "control-room",
+  });
+});
+
 test("deriveShellRoute selects the MAC Today front door", () => {
   assert.deepEqual(deriveShellRoute("/today"), {
     selectedChannelId: null,

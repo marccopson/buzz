@@ -13,6 +13,7 @@ import { Route as remindersRouteImport } from "./routes/reminders";
 import { Route as pulseRouteImport } from "./routes/pulse";
 import { Route as projectsRouteImport } from "./routes/projects";
 import { Route as myActionsRouteImport } from "./routes/my-actions";
+import { Route as controlRoomRouteImport } from "./routes/control-room";
 import { Route as agentsRouteImport } from "./routes/agents";
 import { Route as indexRouteImport } from "./routes/index";
 import { Route as workflowsDotworkflowIdRouteImport } from "./routes/workflows.$workflowId";
@@ -61,6 +62,11 @@ const myActionsRoute = myActionsRouteImport.update({
   path: "/my-actions",
   getParentRoute: () => rootRouteImport,
 } as any);
+const controlRoomRoute = controlRoomRouteImport.update({
+  id: "/control-room",
+  path: "/control-room",
+  getParentRoute: () => rootRouteImport,
+} as any);
 const agentsRoute = agentsRouteImport.update({
   id: "/agents",
   path: "/agents",
@@ -101,6 +107,7 @@ const channelsDotchannelIdDotpostsDotpostIdRoute =
 export interface FileRoutesByFullPath {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/control-room": typeof controlRoomRoute;
   "/my-actions": typeof myActionsRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -118,6 +125,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/control-room": typeof controlRoomRoute;
   "/my-actions": typeof myActionsRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -136,6 +144,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport;
   "/": typeof indexRoute;
   "/agents": typeof agentsRoute;
+  "/control-room": typeof controlRoomRoute;
   "/my-actions": typeof myActionsRoute;
   "/projects": typeof projectsRoute;
   "/pulse": typeof pulseRoute;
@@ -155,6 +164,7 @@ export interface FileRouteTypes {
   fullPaths:
     | "/"
     | "/agents"
+    | "/control-room"
     | "/my-actions"
     | "/projects"
     | "/pulse"
@@ -172,6 +182,7 @@ export interface FileRouteTypes {
   to:
     | "/"
     | "/agents"
+    | "/control-room"
     | "/my-actions"
     | "/projects"
     | "/pulse"
@@ -189,6 +200,7 @@ export interface FileRouteTypes {
     | "__root__"
     | "/"
     | "/agents"
+    | "/control-room"
     | "/my-actions"
     | "/projects"
     | "/pulse"
@@ -207,6 +219,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   indexRoute: typeof indexRoute;
   agentsRoute: typeof agentsRoute;
+  controlRoomRoute: typeof controlRoomRoute;
   myActionsRoute: typeof myActionsRoute;
   projectsRoute: typeof projectsRoute;
   pulseRoute: typeof pulseRoute;
@@ -280,6 +293,13 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof myActionsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
+    "/control-room": {
+      id: "/control-room";
+      path: "/control-room";
+      fullPath: "/control-room";
+      preLoaderRoute: typeof controlRoomRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
     "/agents": {
       id: "/agents";
       path: "/agents";
@@ -335,6 +355,7 @@ declare module "@tanstack/react-router" {
 const rootRouteChildren: RootRouteChildren = {
   indexRoute: indexRoute,
   agentsRoute: agentsRoute,
+  controlRoomRoute: controlRoomRoute,
   myActionsRoute: myActionsRoute,
   projectsRoute: projectsRoute,
   pulseRoute: pulseRoute,

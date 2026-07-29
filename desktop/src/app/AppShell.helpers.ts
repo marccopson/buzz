@@ -12,6 +12,7 @@ export type AppView =
   | "pulse"
   | "projects"
   | "running-order"
+  | "control-room"
   | "my-actions";
 
 const WINDOW_DRAG_HANDLE_HEIGHT = 44;
@@ -167,6 +168,13 @@ export function deriveShellRoute(pathname: string): {
     return {
       selectedChannelId: null,
       selectedView: "running-order",
+    };
+  }
+
+  if (pathname === "/control-room") {
+    return {
+      selectedChannelId: null,
+      selectedView: "control-room",
     };
   }
 

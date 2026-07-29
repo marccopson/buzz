@@ -1,5 +1,7 @@
 import 'package:buzz/features/home/home_page.dart';
 import 'package:buzz/features/channels/channels_page.dart';
+import 'package:buzz/features/cos_user_context/cos_user_context.dart';
+import 'package:buzz/features/cos_user_context/cos_user_context_provider.dart';
 import 'package:buzz/shared/theme/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,17 +10,47 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  Future<Widget> buildHome() async {
+  const technicalContext = CosUserContext(
+    eventId: 'context',
+    channelId: 'channel',
+    assigneePubkey: 'user',
+    modules: ['today', 'my_actions', 'messages', 'agents', 'running_order'],
+    createdAt: 1,
+  );
+
+  Future<Widget> buildHome({bool technical = true}) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
     return ProviderScope(
-      overrides: [savedPrefsProvider.overrideWithValue(prefs)],
+      overrides: [
+        savedPrefsProvider.overrideWithValue(prefs),
+        cosUserContextProvider.overrideWith(
+          (ref) async => technical ? technicalContext : null,
+        ),
+      ],
       child: MaterialApp(
         theme: AppTheme.light(),
         home: const HomePage(settingsPageBuilder: _buildSettingsPage),
       ),
     );
   }
+
+  test('fails closed while role context is loading or errored', () {
+    expect(
+      currentCosUserContext(const AsyncLoading<CosUserContext?>()),
+      isNull,
+    );
+    expect(
+      currentCosUserContext(
+        AsyncError<CosUserContext?>('revoked', StackTrace.current),
+      ),
+      isNull,
+    );
+    expect(
+      currentCosUserContext(const AsyncData<CosUserContext?>(technicalContext)),
+      same(technicalContext),
+    );
+  });
 
   testWidgets('shows icon-only navigation and an aligned quick action', (
     tester,
@@ -29,12 +61,12 @@ void main() {
     expect(find.text('Home'), findsNothing);
     expect(find.text('Activity'), findsNothing);
     expect(find.text('Search'), findsNothing);
-    expect(find.text('COS'), findsNothing);
+    expect(find.text('Control'), findsNothing);
     expect(find.text('My Actions'), findsNothing);
     expect(find.bySemanticsLabel('Home'), findsOneWidget);
     expect(find.bySemanticsLabel('Activity'), findsOneWidget);
     expect(find.bySemanticsLabel('Search'), findsOneWidget);
-    expect(find.bySemanticsLabel('COS'), findsOneWidget);
+    expect(find.bySemanticsLabel('Control'), findsOneWidget);
     expect(find.bySemanticsLabel('My Actions'), findsOneWidget);
 
     final quickAction = find.byTooltip('Create or start conversation');
@@ -60,6 +92,20 @@ void main() {
       quickActionRect.center.dy,
       closeTo(homeDestinationRect.center.dy, 0.01),
     );
+  });
+
+  testWidgets('fails closed for staff without a signed technical context', (
+    tester,
+  ) async {
+    await tester.pumpWidget(await buildHome(technical: false));
+    await tester.pumpAndSettle();
+
+    expect(find.bySemanticsLabel('Control'), findsNothing);
+    expect(find.bySemanticsLabel('COS'), findsNothing);
+    expect(find.bySemanticsLabel('My Actions'), findsNothing);
+    expect(find.bySemanticsLabel('Home'), findsOneWidget);
+    expect(find.bySemanticsLabel('Activity'), findsOneWidget);
+    expect(find.bySemanticsLabel('Search'), findsOneWidget);
   });
 
   testWidgets('gives selection haptics only when the tab changes', (

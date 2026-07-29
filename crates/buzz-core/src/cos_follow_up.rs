@@ -426,10 +426,12 @@ pub fn validate_user_context_content(content: &UserContextContent) -> Result<(),
     }
     if content.tenant_slug.is_empty()
         || content.tenant_slug.len() > 63
-        || !content
-            .tenant_slug
-            .bytes()
-            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || !content.tenant_slug.split('-').all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+        })
         || !valid_scalar(&content.user.id)
         || content.user.name.trim().is_empty()
         || content.user.role.trim().is_empty()
@@ -455,13 +457,6 @@ pub fn validate_user_context_content(content: &UserContextContent) -> Result<(),
         return Err(ContractError::Invalid(
             "COS user context modules are invalid".into(),
         ));
-    }
-    for required in ["today", "my_actions", "messages"] {
-        if !modules.contains(required) {
-            return Err(ContractError::Invalid(format!(
-                "COS user context is missing required module {required}"
-            )));
-        }
     }
     if content.assistant.is_some() != modules.contains("assistant") {
         return Err(ContractError::Invalid(

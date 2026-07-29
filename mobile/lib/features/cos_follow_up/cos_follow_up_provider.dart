@@ -5,6 +5,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../shared/relay/relay.dart';
 import '../../shared/theme/theme_provider.dart';
+import '../cos_user_context/cos_user_context_provider.dart';
 import 'cos_follow_up.dart';
 import 'cos_follow_up_authority.dart';
 import 'cos_follow_up_notification_service.dart';
@@ -137,33 +138,39 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   Timer? _subscriptionRecoveryTimer;
   int _subscriptionRecoveryAttempt = 0;
   bool _subscriptionRecoveryInFlight = false;
+  bool _authorised = false;
   bool _disposed = false;
 
   @override
   CosFollowUpViewState build() {
     _disposed = false;
+    final contextResult = ref.watch(cosUserContextProvider);
+    final workspaceContext = currentCosUserContext(contextResult);
     final pubkey = ref.watch(myPubkeyProvider)?.trim().toLowerCase() ?? '';
     final relayScope = ref.watch(relayConfigProvider).baseUrl;
     final authority = ref.watch(cosFollowUpBridgePubkeyProvider);
     final trustedBridgePubkey = authority.value?.trim().toLowerCase() ?? '';
     ref.onDispose(_dispose);
+    if (workspaceContext?.hasModule('my_actions') != true) {
+      return _disableAccess(loading: contextResult.isLoading);
+    }
     if (pubkey.isEmpty) {
-      _pubkey = '';
-      _trustedBridgePubkey = '';
-      _disposeSubscriptions();
-      return const CosFollowUpViewState(items: [], loading: false);
+      return _disableAccess(loading: false);
     }
     if (authority.isLoading) {
+      _authorised = false;
       _disposeSubscriptions();
       return const CosFollowUpViewState(items: [], loading: true);
     }
     if (trustedBridgePubkey.isEmpty) {
+      _authorised = false;
       _pubkey = pubkey;
       _relayScope = relayScope;
       _trustedBridgePubkey = '';
       _disposeSubscriptions();
       return const CosFollowUpViewState(items: [], loading: false);
     }
+    _authorised = true;
     if (_pubkey != pubkey ||
         _relayScope != relayScope ||
         _trustedBridgePubkey != trustedBridgePubkey) {
@@ -182,6 +189,25 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
       Future.microtask(refresh);
     }
     return const CosFollowUpViewState();
+  }
+
+  CosFollowUpViewState _disableAccess({required bool loading}) {
+    if (_authorised ||
+        _pubkey.isNotEmpty ||
+        _trustedBridgePubkey.isNotEmpty ||
+        _pendingNotifications.isNotEmpty ||
+        _deliveryInFlight.isNotEmpty) {
+      _notificationGeneration++;
+    }
+    _authorised = false;
+    _pubkey = '';
+    _trustedBridgePubkey = '';
+    _seen.clear();
+    _pendingNotifications.clear();
+    _deliveryInFlight.clear();
+    _observedRemovals.clear();
+    _disposeSubscriptions();
+    return CosFollowUpViewState(items: const [], loading: loading);
   }
 
   String get _seenKey =>
@@ -264,7 +290,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   Future<void> refresh() async {
-    if (_disposed) return;
+    if (_disposed || !_authorised) return;
     _cancelSubscriptionRecovery();
     _subscriptionRecoveryAttempt = 0;
     try {
@@ -275,7 +301,12 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   Future<void> _refreshAndReconcile() async {
-    if (_disposed || _pubkey.isEmpty || _trustedBridgePubkey.isEmpty) return;
+    if (_disposed ||
+        !_authorised ||
+        _pubkey.isEmpty ||
+        _trustedBridgePubkey.isEmpty) {
+      return;
+    }
     state = state.copyWith(loading: state.items.isEmpty, clearLoadError: true);
     _disposeSubscriptions(cancelRecovery: false);
     final generation = _subscriptionGeneration;
@@ -435,6 +466,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
 
   void _handleSubscriptionClosed(int generation, String stream, String _) {
     if (_disposed ||
+        !_authorised ||
         generation != _subscriptionGeneration ||
         _pubkey.isEmpty ||
         _trustedBridgePubkey.isEmpty) {
@@ -460,6 +492,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
 
   void _scheduleSubscriptionRecovery() {
     if (_disposed ||
+        !_authorised ||
         _subscriptionRecoveryTimer != null ||
         _subscriptionRecoveryInFlight ||
         _pubkey.isEmpty ||
@@ -484,7 +517,12 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   Future<void> _recoverSubscriptions() async {
-    if (_disposed || _pubkey.isEmpty || _trustedBridgePubkey.isEmpty) return;
+    if (_disposed ||
+        !_authorised ||
+        _pubkey.isEmpty ||
+        _trustedBridgePubkey.isEmpty) {
+      return;
+    }
     _subscriptionRecoveryInFlight = true;
     Object? failure;
     try {
@@ -511,10 +549,13 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
 
   void _dispose() {
     _disposed = true;
+    _authorised = false;
+    _notificationGeneration++;
     _disposeSubscriptions();
   }
 
   void _handleLiveItem(NostrEvent event) {
+    if (!_authorised) return;
     if (event.pubkey.toLowerCase() != _trustedBridgePubkey) return;
     CosFollowUpItem item;
     try {
@@ -530,15 +571,16 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   Future<void> _handleLiveItemAfterRemovalFence(CosFollowUpItem item) async {
+    if (!_authorised) return;
     final generation = _subscriptionGeneration;
     await _subscribeRemovalChannel(item.channelId);
-    if (generation != _subscriptionGeneration) return;
+    if (!_authorised || generation != _subscriptionGeneration) return;
 
     // The item may have been deleted while its channel subscription was being
     // established. Reconcile against durable relay history before projecting
     // or notifying.
     final events = await _fetchItemHistory();
-    if (generation != _subscriptionGeneration) return;
+    if (!_authorised || generation != _subscriptionGeneration) return;
     final retained = _projectItems(
       events,
     ).where((candidate) => candidate.id == item.id).firstOrNull;
@@ -551,6 +593,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   void _applyLiveItem(NostrEvent event, CosFollowUpItem item) {
+    if (!_authorised) return;
     CosFollowUpItem? retained;
     final projectedItems = projectLatestCosFollowUpItems(
       [for (final current in state.items) _eventProjection(current), event],
@@ -640,7 +683,8 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   );
 
   void _handleRemoval(NostrEvent event) {
-    if (event.kind != EventKind.deletion ||
+    if (!_authorised ||
+        event.kind != EventKind.deletion ||
         event.pubkey.toLowerCase() != _trustedBridgePubkey) {
       return;
     }
@@ -675,9 +719,10 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
       _observedRemovals.contains((item.channelId, item.id, item.eventId));
 
   Future<void> _persistAndQueuePendingDelivery(String itemId) async {
+    if (!_authorised) return;
     final generation = _notificationGeneration;
     await _savePendingNotifications();
-    if (generation == _notificationGeneration) {
+    if (_authorised && generation == _notificationGeneration) {
       _queuePendingDelivery(itemId);
     }
   }
@@ -687,12 +732,14 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   /// The app calls this when it resumes, so granting notification permission
   /// in Android settings replays the queued actionable state immediately.
   Future<void> retryPendingNotifications() async {
+    if (!_authorised) return;
     for (final itemId in _pendingNotifications.keys.toList()) {
       _queuePendingDelivery(itemId);
     }
   }
 
   void _queuePendingDelivery(String itemId) {
+    if (!_authorised) return;
     final generation = _notificationGeneration;
     final token = '$generation:$itemId';
     if (!_deliveryInFlight.add(token)) return;
@@ -705,7 +752,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     String token,
   ) async {
     try {
-      while (generation == _notificationGeneration) {
+      while (_authorised && generation == _notificationGeneration) {
         final pending = _pendingNotifications[itemId];
         if (pending == null) return;
         CosFollowUpNotificationDelivery outcome;
@@ -720,7 +767,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
         } catch (_) {
           return;
         }
-        if (generation != _notificationGeneration) return;
+        if (!_authorised || generation != _notificationGeneration) return;
         final current = _pendingNotifications[itemId];
         if (outcome == CosFollowUpNotificationDelivery.denied) return;
         if (current == null) return;
@@ -755,6 +802,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
     String? answer,
     String? comment,
   }) async {
+    if (!_authorised) return;
     final pending = {...state.pendingItemIds, item.id};
     final errors = {...state.actionErrors}..remove(item.id);
     state = state.copyWith(pendingItemIds: pending, actionErrors: errors);
@@ -795,6 +843,7 @@ class CosFollowUpNotifier extends Notifier<CosFollowUpViewState> {
   }
 
   Future<void> retryAction(String itemId) async {
+    if (!_authorised) return;
     final attempt = _attempts[itemId];
     if (attempt == null) return;
     state = state.copyWith(

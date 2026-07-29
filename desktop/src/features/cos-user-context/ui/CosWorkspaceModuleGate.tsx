@@ -6,6 +6,7 @@ import { cosFollowUpCommunityScope } from "@/features/cos-follow-up/hooks";
 import { useCosUserContextQuery } from "@/features/cos-user-context/hooks";
 import {
   type CosWorkspaceModule,
+  currentCosUserContext,
   hasCosWorkspaceModule,
 } from "@/features/cos-user-context/lib/cosUserContext";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -13,9 +14,11 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 export function CosWorkspaceModuleGate({
   children,
   module,
+  modules,
 }: {
   children: React.ReactNode;
-  module: CosWorkspaceModule;
+  module?: CosWorkspaceModule;
+  modules?: readonly CosWorkspaceModule[];
 }) {
   const identity = useIdentityQuery();
   const { activeCommunity } = useCommunities();
@@ -24,14 +27,21 @@ export function CosWorkspaceModuleGate({
     cosFollowUpCommunityScope(activeCommunity),
   );
 
-  if (context.isPending) {
+  if (context.isFetching) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
         Checking your Contractor OS access…
       </div>
     );
   }
-  if (!hasCosWorkspaceModule(context.data, module)) {
+  const currentContext = currentCosUserContext(context);
+  const requiredModules = modules ?? (module ? [module] : []);
+  if (
+    requiredModules.length === 0 ||
+    !requiredModules.every((requiredModule) =>
+      hasCosWorkspaceModule(currentContext, requiredModule),
+    )
+  ) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-6">
         <div className="max-w-md rounded-xl border border-border/60 bg-card/70 p-8 text-center">
