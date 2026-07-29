@@ -139,6 +139,7 @@ type AppSidebarProps = {
   onRemoveCommunity: (id: string) => void;
   onCreateAgent: () => void;
   onSelectAgents: () => void;
+  onSelectControlRoom: () => void;
   onSelectMyActions: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
@@ -172,7 +173,6 @@ type AppSidebarProps = {
   onStarChannel?: (channelId: string) => void;
   onUnstarChannel?: (channelId: string) => void;
 };
-
 export function AppSidebar({
   addCommunityPrefill,
   activeCommunity,
@@ -210,6 +210,7 @@ export function AppSidebar({
   onRemoveCommunity,
   onCreateAgent,
   onSelectAgents,
+  onSelectControlRoom,
   onSelectMyActions,
   onSelectProjects,
   onSelectPulse,
@@ -406,8 +407,7 @@ export function AppSidebar({
         unassigned.push(channel);
       }
     }
-    // Apply each grouping's own sort preference; section membership itself
-    // is untouched.
+    // Apply each grouping's own sort preference.
     for (const sectionId of Object.keys(bySection)) {
       bySection[sectionId] = sortChannelsForSidebar(
         bySection[sectionId],
@@ -610,6 +610,7 @@ export function AppSidebar({
               <AppSidebarPrimaryMenu
                 homeBadgeCount={homeBadgeCount}
                 onSelectAgents={onSelectAgents}
+                onSelectControlRoom={onSelectControlRoom}
                 onSelectHome={onSelectHome}
                 onSelectMyActions={onSelectMyActions}
                 onSelectProjects={onSelectProjects}

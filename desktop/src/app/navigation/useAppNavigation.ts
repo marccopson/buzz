@@ -112,6 +112,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goControlRoom = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/control-room",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goMyActions = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -330,6 +341,7 @@ export function useAppNavigation() {
     closeWorkflowDetail,
     goAgents,
     goChannel,
+    goControlRoom,
     goForumPost,
     goHome,
     goMyActions,
