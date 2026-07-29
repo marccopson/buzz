@@ -114,6 +114,8 @@ export function AppSidebarPrimaryMenu({
   workspaceModules,
 }: AppSidebarPrimaryMenuProps) {
   const hasProjectedContext = Array.isArray(workspaceModules);
+  const canUseMyActions =
+    hasProjectedContext && workspaceModules.includes("my_actions");
   const canUseAgents =
     !hasProjectedContext || workspaceModules.includes("agents");
   const canUseRunningOrder =
@@ -159,18 +161,20 @@ export function AppSidebarPrimaryMenu({
             </SidebarMenuBadge>
           ) : null}
         </SidebarMenuItem>
-        <SidebarMenuItem>
-          <SidebarMenuButton
-            data-testid="open-my-actions-view"
-            isActive={selectedView === "my-actions"}
-            onClick={onSelectMyActions}
-            tooltip="My Actions"
-            type="button"
-          >
-            <ListTodo className="h-4 w-4" />
-            <SidebarMenuLabel>My Actions</SidebarMenuLabel>
-          </SidebarMenuButton>
-        </SidebarMenuItem>
+        {canUseMyActions ? (
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="open-my-actions-view"
+              isActive={selectedView === "my-actions"}
+              onClick={onSelectMyActions}
+              tooltip="My Actions"
+              type="button"
+            >
+              <ListTodo className="h-4 w-4" />
+              <SidebarMenuLabel>My Actions</SidebarMenuLabel>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        ) : null}
         {canUseTechnicalTools ? (
           <FeatureGate feature="pulse">
             <SidebarMenuItem>

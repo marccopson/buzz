@@ -16,6 +16,11 @@ import {
   stateLabel,
 } from "@/features/cos-follow-up/lib/cosFollowUp";
 import type { Community } from "@/features/communities/types";
+import { useCosUserContextQuery } from "@/features/cos-user-context/hooks";
+import {
+  currentCosUserContext,
+  hasCosWorkspaceModule,
+} from "@/features/cos-user-context/lib/cosUserContext";
 import { sendDesktopNotification } from "@/features/notifications/lib/desktop";
 import { relayClient } from "@/shared/api/relayClient";
 import { signRelayEvent } from "@/shared/api/tauri";
@@ -299,7 +304,13 @@ export function useCosFollowUpCommunitySync(
   pubkey: string | undefined,
   community: Pick<Community, "id"> | null | undefined,
 ) {
-  useCosFollowUpSync(pubkey, cosFollowUpCommunityScope(community));
+  const communityScope = cosFollowUpCommunityScope(community);
+  const contextQuery = useCosUserContextQuery(pubkey, communityScope);
+  const context = currentCosUserContext(contextQuery);
+  useCosFollowUpSync(
+    hasCosWorkspaceModule(context, "my_actions") ? pubkey : undefined,
+    communityScope,
+  );
 }
 
 export class CosFollowUpSubmissionError extends Error {

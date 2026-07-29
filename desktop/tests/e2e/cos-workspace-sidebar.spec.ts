@@ -12,12 +12,14 @@ test("technical controls stay hidden until trusted admin context resolves", asyn
 
   await page.goto("/");
   await expect(page.getByTestId("open-today-view")).toBeVisible();
+  await expect(page.getByTestId("open-my-actions-view")).toHaveCount(0);
   await expect(page.getByTestId("open-agents-view")).toHaveCount(0);
   await expect(page.getByTestId("open-running-order-view")).toHaveCount(0);
   await expect(page.getByTestId("open-control-room-view")).toHaveCount(0);
   await expect(page.getByTestId("open-workflows-view")).toHaveCount(0);
 
   await expect(page.getByTestId("open-agents-view")).toBeVisible();
+  await expect(page.getByTestId("open-my-actions-view")).toBeVisible();
   await expect(page.getByTestId("open-running-order-view")).toBeVisible();
   await expect(page.getByTestId("open-control-room-view")).toBeVisible();
   await expect(page.getByTestId("open-workflows-view")).toBeVisible();
@@ -51,9 +53,24 @@ test("Today hides retained privileged shortcuts while context refreshes", async 
   await expect(page.getByTestId("today-running-order")).toBeVisible();
 
   await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByTestId("open-my-actions-view")).toHaveCount(0);
+  await expect(page.getByTestId("today-my-actions")).toHaveCount(0);
   await expect(page.getByTestId("today-assistant")).toHaveCount(0);
   await expect(page.getByTestId("today-running-order")).toHaveCount(0);
 
+  await expect(page.getByTestId("open-my-actions-view")).toBeVisible();
+  await expect(page.getByTestId("today-my-actions")).toBeVisible();
   await expect(page.getByTestId("today-assistant")).toBeVisible();
   await expect(page.getByTestId("today-running-order")).toBeVisible();
+});
+
+test("My Actions direct route fails closed without trusted role context", async ({
+  page,
+}) => {
+  await installMockBridge(page, { cosUserContext: null });
+
+  await page.goto("/#/my-actions");
+  await expect(page.getByTestId("open-my-actions-view")).toHaveCount(0);
+  await expect(page.getByText("Access not available")).toBeVisible();
+  await expect(page.getByTestId("cos-my-actions")).toHaveCount(0);
 });

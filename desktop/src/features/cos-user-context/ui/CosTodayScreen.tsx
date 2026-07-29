@@ -73,8 +73,12 @@ export function CosTodayScreen() {
   const pubkey = identity.data?.pubkey ?? "";
   const communityScope = cosFollowUpCommunityScope(activeCommunity);
   const contextQuery = useCosUserContextQuery(pubkey, communityScope);
-  const actionsQuery = useCosFollowUpQuery(pubkey, communityScope);
   const context = currentCosUserContext(contextQuery);
+  const canUseMyActions = hasCosWorkspaceModule(context, "my_actions");
+  const actionsQuery = useCosFollowUpQuery(
+    canUseMyActions ? pubkey : undefined,
+    communityScope,
+  );
   const openActions = (actionsQuery.data ?? []).filter(
     (item) => item.state !== "confirmed",
   );
@@ -86,7 +90,8 @@ export function CosTodayScreen() {
   ).length;
 
   const refresh = () => {
-    void Promise.all([contextQuery.refetch(), actionsQuery.refetch()]);
+    void contextQuery.refetch();
+    if (canUseMyActions) void actionsQuery.refetch();
   };
 
   return (
@@ -151,23 +156,25 @@ export function CosTodayScreen() {
           ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
-            <TodayCard
-              description={
-                openActions.length === 0
-                  ? "Nothing needs you right now."
-                  : `${openActions.length} open: ${needsAnswer} question${needsAnswer === 1 ? "" : "s"} and ${needsCheck} confirmation${needsCheck === 1 ? "" : "s"}.`
-              }
-              icon={
-                openActions.length === 0 ? (
-                  <CheckCircle2 className="h-5 w-5" />
-                ) : (
-                  <ListTodo className="h-5 w-5" />
-                )
-              }
-              onClick={() => void navigation.goMyActions()}
-              testId="today-my-actions"
-              title="My Actions"
-            />
+            {canUseMyActions ? (
+              <TodayCard
+                description={
+                  openActions.length === 0
+                    ? "Nothing needs you right now."
+                    : `${openActions.length} open: ${needsAnswer} question${needsAnswer === 1 ? "" : "s"} and ${needsCheck} confirmation${needsCheck === 1 ? "" : "s"}.`
+                }
+                icon={
+                  openActions.length === 0 ? (
+                    <CheckCircle2 className="h-5 w-5" />
+                  ) : (
+                    <ListTodo className="h-5 w-5" />
+                  )
+                }
+                onClick={() => void navigation.goMyActions()}
+                testId="today-my-actions"
+                title="My Actions"
+              />
+            ) : null}
 
             <TodayCard
               description="Your private messages and conversations with the MAC team."
