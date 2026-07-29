@@ -13,6 +13,8 @@ final cosUserContextProvider = FutureProvider<CosUserContext?>((ref) async {
   if (pubkey == null || pubkey.isEmpty) return null;
   final bridgePubkey = await ref.watch(cosFollowUpBridgePubkeyProvider.future);
   if (bridgePubkey == null) return null;
+  final relaySelfPubkey = await ref.watch(relaySelfPubkeyProvider.future);
+  if (relaySelfPubkey == null) return null;
   final session = ref.read(relaySessionProvider.notifier);
   final candidateEvents = await session.fetchHistory(
     NostrFilter(
@@ -56,6 +58,7 @@ final cosUserContextProvider = FutureProvider<CosUserContext?>((ref) async {
     membershipEvents: channelEvidence[1],
     assigneePubkey: pubkey,
     trustedBridgePubkey: bridgePubkey,
+    trustedRelayPubkey: relaySelfPubkey,
   );
   if (channelId == null) return null;
   final events = await session.fetchHistory(

@@ -14,7 +14,9 @@ import {
 const assignee = "a".repeat(64);
 const bridgeSecret = new Uint8Array(32).fill(1);
 const attackerSecret = new Uint8Array(32).fill(2);
+const relaySecret = new Uint8Array(32).fill(3);
 const bridge = getPublicKey(bridgeSecret);
+const relay = getPublicKey(relaySecret);
 const channel = "550e8400-e29b-41d4-a716-446655440000";
 
 function contextEvent({
@@ -65,7 +67,7 @@ function channelMetadata(channelId, { isPrivate = true, createdAt = 1 } = {}) {
       tags: [["d", channelId], ...(isPrivate ? [["private"]] : [["public"]])],
       content: "",
     },
-    bridgeSecret,
+    relaySecret,
   );
 }
 
@@ -90,7 +92,7 @@ function channelMembership(
       ],
       content: "",
     },
-    attackerSecret,
+    relaySecret,
   );
 }
 
@@ -184,6 +186,7 @@ test("binds role projection to the unique current private identity channel", () 
     ],
     assigneePubkey: assignee,
     trustedBridgePubkey: bridge,
+    trustedRelayPubkey: relay,
   });
   assert.equal(resolved, channel);
   assert.equal(
@@ -205,6 +208,7 @@ test("fails closed when two channels claim the same active identity", () => {
       ],
       assigneePubkey: assignee,
       trustedBridgePubkey: bridge,
+      trustedRelayPubkey: relay,
     }),
     null,
   );
@@ -216,6 +220,29 @@ test("fails closed when two channels claim the same active identity", () => {
         channel,
       ),
     /different channel/,
+  );
+});
+
+test("rejects channel authority not signed by the active relay", () => {
+  const forgedMetadata = finalizeEvent(
+    {
+      created_at: 2,
+      kind: 39000,
+      tags: [["d", channel], ["private"]],
+      content: "",
+    },
+    attackerSecret,
+  );
+  assert.equal(
+    resolveAuthoritativeCosUserContextChannel({
+      candidateChannelIds: [channel],
+      metadataEvents: [forgedMetadata],
+      membershipEvents: [channelMembership(channel)],
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+      trustedRelayPubkey: relay,
+    }),
+    null,
   );
 });
 

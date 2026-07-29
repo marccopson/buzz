@@ -975,7 +975,7 @@ function createMockCosFollowUpChannelMetadataEvent(): RelayEvent {
         ["name", "cos-follow-up"],
       ],
     },
-    MOCK_COS_BRIDGE_PRIVATE_KEY,
+    MOCK_RELAY_PRIVATE_KEY,
   );
 }
 
@@ -993,7 +993,7 @@ function createMockCosFollowUpChannelMembershipEvent(
         ["p", getMockMemberPubkey(config).toLowerCase(), "", "member"],
       ],
     },
-    MOCK_COS_BRIDGE_PRIVATE_KEY,
+    MOCK_RELAY_PRIVATE_KEY,
   );
 }
 
@@ -1337,6 +1337,8 @@ const DEFAULT_MOCK_IDENTITY = {
 };
 const MOCK_COS_BRIDGE_PRIVATE_KEY = hexToBytes("04".repeat(32));
 const MOCK_COS_BRIDGE_PUBKEY = getPublicKey(MOCK_COS_BRIDGE_PRIVATE_KEY);
+const MOCK_RELAY_PRIVATE_KEY = hexToBytes("05".repeat(32));
+const MOCK_RELAY_PUBKEY = getPublicKey(MOCK_RELAY_PRIVATE_KEY);
 const DEFAULT_REAL_IDENTITY = {
   privateKey:
     "3dbaebadb5dfd777ff25149ee230d907a15a9e1294b40b830661e65bb42f6c03",
@@ -11391,7 +11393,9 @@ export function maybeInstallE2eTauriMocks() {
             ),
           );
         }
-        return activeConfig?.mock?.relaySelf ?? null;
+        return activeConfig?.mock?.relaySelf === undefined
+          ? MOCK_RELAY_PUBKEY
+          : activeConfig.mock.relaySelf;
       case "get_cos_follow_up_bridge_pubkey":
         return activeConfig?.mock?.cosFollowUpBridgePubkey === undefined
           ? MOCK_COS_BRIDGE_PUBKEY

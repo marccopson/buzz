@@ -16,6 +16,8 @@ void main() {
     final document = {'cos_follow_up': authority};
 
     expect(parseCosFollowUpBridgePubkey(document), bridge);
+    expect(parseRelaySelfPubkey({...document, 'self': bridge}), bridge);
+    expect(parseRelaySelfPubkey({...document, 'self': 'A' * 64}), isNull);
     expect(
       parseCosFollowUpBridgePubkey({
         'cos_follow_up': {...authority, 'bridge_pubkey': 'A' * 64},

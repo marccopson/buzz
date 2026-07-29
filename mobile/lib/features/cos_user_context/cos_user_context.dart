@@ -142,9 +142,18 @@ String? resolveAuthoritativeCosUserContextChannel({
   required Iterable<NostrEvent> membershipEvents,
   required String assigneePubkey,
   required String trustedBridgePubkey,
+  required String trustedRelayPubkey,
 }) {
-  final metadata = _latestByCoordinate(metadataEvents, 39000);
-  final memberships = _latestByCoordinate(membershipEvents, 39002);
+  final metadata = _latestByCoordinate(
+    metadataEvents,
+    39000,
+    trustedRelayPubkey,
+  );
+  final memberships = _latestByCoordinate(
+    membershipEvents,
+    39002,
+    trustedRelayPubkey,
+  );
   final valid = candidateChannelIds.toSet().where((channelId) {
     final channelMetadata = metadata[channelId];
     final channelMembership = memberships[channelId];
@@ -163,10 +172,15 @@ String? resolveAuthoritativeCosUserContextChannel({
 Map<String, NostrEvent> _latestByCoordinate(
   Iterable<NostrEvent> events,
   int expectedKind,
+  String trustedRelayPubkey,
 ) {
   final latest = <String, NostrEvent>{};
   for (final event in events) {
-    if (event.kind != expectedKind || !_hasValidSignature(event)) continue;
+    if (event.kind != expectedKind ||
+        event.pubkey.toLowerCase() != trustedRelayPubkey.toLowerCase() ||
+        !_hasValidSignature(event)) {
+      continue;
+    }
     String coordinate;
     try {
       coordinate = _exactTag(event, 'd');

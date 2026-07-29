@@ -104,10 +104,17 @@ function retainLatestReplaceable(
 function latestByCoordinate(
   events: RelayEvent[],
   expectedKind: number,
+  trustedRelayPubkey: string,
 ): Map<string, RelayEvent> {
   const result = new Map<string, RelayEvent>();
   for (const event of events) {
-    if (event.kind !== expectedKind || !hasValidSignature(event)) continue;
+    if (
+      event.kind !== expectedKind ||
+      event.pubkey.toLowerCase() !== trustedRelayPubkey.toLowerCase() ||
+      !hasValidSignature(event)
+    ) {
+      continue;
+    }
     let coordinate: string;
     try {
       coordinate = exactlyOneTag(event, "d");
@@ -322,20 +329,24 @@ export function resolveAuthoritativeCosUserContextChannel({
   membershipEvents,
   assigneePubkey,
   trustedBridgePubkey,
+  trustedRelayPubkey,
 }: {
   candidateChannelIds: string[];
   metadataEvents: RelayEvent[];
   membershipEvents: RelayEvent[];
   assigneePubkey: string;
   trustedBridgePubkey: string;
+  trustedRelayPubkey: string;
 }): string | null {
   const metadata = latestByCoordinate(
     metadataEvents,
     KIND_NIP29_GROUP_METADATA,
+    trustedRelayPubkey,
   );
   const memberships = latestByCoordinate(
     membershipEvents,
     KIND_NIP29_GROUP_MEMBERS,
+    trustedRelayPubkey,
   );
   const valid = [...new Set(candidateChannelIds)].filter((channelId) => {
     const channelMetadata = metadata.get(channelId);

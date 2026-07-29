@@ -5,13 +5,20 @@ import {
   resolveAuthoritativeCosUserContextChannel,
   selectLatestCosUserContext,
 } from "@/features/cos-user-context/lib/cosUserContext";
+import { getRelaySelf } from "@/features/moderation/lib/relaySelf";
 import { relayClient } from "@/shared/api/relayClient";
 import { getCosFollowUpBridgePubkey } from "@/shared/api/tauriIdentityArchive";
 import { KIND_COS_USER_CONTEXT } from "@/shared/constants/kinds";
 
 async function fetchAuthority() {
   try {
-    return await getCosFollowUpBridgePubkey();
+    const [bridgePubkey, relaySelfPubkey] = await Promise.all([
+      getCosFollowUpBridgePubkey(),
+      getRelaySelf(),
+    ]);
+    return bridgePubkey && relaySelfPubkey
+      ? { bridgePubkey, relaySelfPubkey }
+      : null;
   } catch {
     return null;
   }
@@ -20,7 +27,7 @@ async function fetchAuthority() {
 export function useCosUserContextQuery(pubkey?: string, communityScope = "") {
   const normalizedPubkey = pubkey?.trim().toLowerCase() ?? "";
   const authority = useQuery({
-    queryKey: ["cos-follow-up-authority", communityScope],
+    queryKey: ["cos-user-context-authority", communityScope],
     queryFn: fetchAuthority,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -29,9 +36,10 @@ export function useCosUserContextQuery(pubkey?: string, communityScope = "") {
     queryKey: ["cos-user-context", communityScope, normalizedPubkey],
     queryFn: async () => {
       if (!authority.data) return null;
+      const { bridgePubkey, relaySelfPubkey } = authority.data;
       const candidateEvents = await relayClient.fetchEvents({
         kinds: [KIND_COS_USER_CONTEXT],
-        authors: [authority.data],
+        authors: [bridgePubkey],
         "#d": [`context:${normalizedPubkey}`],
         "#p": [normalizedPubkey],
         limit: 20,
@@ -39,7 +47,7 @@ export function useCosUserContextQuery(pubkey?: string, communityScope = "") {
       const candidateChannelIds = cosUserContextChannelCandidates(
         candidateEvents,
         normalizedPubkey,
-        authority.data,
+        bridgePubkey,
       );
       if (candidateChannelIds.length === 0) return null;
       const [metadataEvents, membershipEvents] = await Promise.all([
@@ -60,12 +68,13 @@ export function useCosUserContextQuery(pubkey?: string, communityScope = "") {
         metadataEvents,
         membershipEvents,
         assigneePubkey: normalizedPubkey,
-        trustedBridgePubkey: authority.data,
+        trustedBridgePubkey: bridgePubkey,
+        trustedRelayPubkey: relaySelfPubkey,
       });
       if (!channelId) return null;
       const events = await relayClient.fetchEvents({
         kinds: [KIND_COS_USER_CONTEXT],
-        authors: [authority.data],
+        authors: [bridgePubkey],
         "#h": [channelId],
         "#d": [`context:${normalizedPubkey}`],
         "#p": [normalizedPubkey],
@@ -74,7 +83,7 @@ export function useCosUserContextQuery(pubkey?: string, communityScope = "") {
       return selectLatestCosUserContext(
         events,
         normalizedPubkey,
-        authority.data,
+        bridgePubkey,
         channelId,
       );
     },

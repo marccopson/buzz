@@ -10,7 +10,10 @@ void main() {
       '0101010101010101010101010101010101010101010101010101010101010101';
   const attackerSecret =
       '0202020202020202020202020202020202020202020202020202020202020202';
+  const relaySecret =
+      '0303030303030303030303030303030303030303030303030303030303030303';
   final bridge = nostr.Keys(bridgeSecret).public;
+  final relay = nostr.Keys(relaySecret).public;
 
   NostrEvent event({
     int createdAt = 1,
@@ -39,6 +42,7 @@ void main() {
     required int kind,
     required String channelId,
     required List<List<String>> tags,
+    String secretKey = relaySecret,
   }) {
     final signed = nostr.Event.from(
       kind: kind,
@@ -47,7 +51,7 @@ void main() {
         ['d', channelId],
         ...tags,
       ],
-      secretKey: attackerSecret,
+      secretKey: secretKey,
       createdAt: 1,
       verify: true,
     );
@@ -155,6 +159,7 @@ void main() {
       ],
       assigneePubkey: assignee,
       trustedBridgePubkey: bridge,
+      trustedRelayPubkey: relay,
     );
     expect(resolved, 'mac');
     expect(
@@ -201,6 +206,7 @@ void main() {
       ],
       assigneePubkey: assignee,
       trustedBridgePubkey: bridge,
+      trustedRelayPubkey: relay,
     );
     expect(resolved, isNull);
     expect(
@@ -211,5 +217,35 @@ void main() {
       ),
       throwsFormatException,
     );
+  });
+
+  test('rejects channel authority not signed by the active relay', () {
+    final resolved = resolveAuthoritativeCosUserContextChannel(
+      candidateChannelIds: const ['mac'],
+      metadataEvents: [
+        channelState(
+          kind: 39000,
+          channelId: 'mac',
+          tags: const [
+            ['private'],
+          ],
+          secretKey: attackerSecret,
+        ),
+      ],
+      membershipEvents: [
+        channelState(
+          kind: 39002,
+          channelId: 'mac',
+          tags: [
+            ['p', bridge, '', 'owner'],
+            const ['p', assignee, '', 'member'],
+          ],
+        ),
+      ],
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+      trustedRelayPubkey: relay,
+    );
+    expect(resolved, isNull);
   });
 }
