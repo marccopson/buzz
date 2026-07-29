@@ -28,10 +28,6 @@ const HEALTH = {
     id: "brain-vps-health-check",
     role: "authoritative-estate-observer",
   },
-  authority: {
-    id: "brain-vps-health-check",
-    role: "authoritative-estate-observer",
-  },
   operationalStatus: "green",
   assuranceStatus: "partial",
   assuranceGaps: [
