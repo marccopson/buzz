@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { installMockBridge } from "../helpers/bridge";
+import { installMockBridge, TEST_IDENTITIES } from "../helpers/bridge";
 
 test("technical controls stay hidden until trusted admin context resolves", async ({
   page,
@@ -23,6 +23,21 @@ test("technical controls stay hidden until trusted admin context resolves", asyn
   await expect(page.getByTestId("open-running-order-view")).toBeVisible();
   await expect(page.getByTestId("open-control-room-view")).toBeVisible();
   await expect(page.getByTestId("open-workflows-view")).toBeVisible();
+});
+
+test("trusted admin context follows a configured relay identity", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    cosUserContext: "admin",
+    relaySelf: TEST_IDENTITIES.bob.pubkey,
+    relayPrivateKey: TEST_IDENTITIES.bob.privateKey,
+  });
+
+  await page.goto("/");
+  await expect(page.getByTestId("open-agents-view")).toBeVisible();
+  await expect(page.getByTestId("open-running-order-view")).toBeVisible();
+  await expect(page.getByTestId("open-control-room-view")).toBeVisible();
 });
 
 test("staff context never exposes privileged technical controls", async ({

@@ -300,6 +300,9 @@ type E2eConfig = {
     // equals this is treated as a moderation DM (composer disabled). Absent →
     // fail open (no mod-DM detection), matching the Rust command's contract.
     relaySelf?: string | null;
+    /** Test-only secret key for a non-default relaySelf. It must derive the
+     * configured pubkey before relay-owned Workspace group state is signed. */
+    relayPrivateKey?: string;
     /** Exact COS bridge authority returned by the mocked NIP-11 command.
      * Undefined keeps the established trusted mock identity default; null
      * explicitly disables the feature. */
@@ -963,7 +966,29 @@ function createMockCosUserContextEvent(
   );
 }
 
-function createMockCosFollowUpChannelMetadataEvent(): RelayEvent {
+function getMockRelayPrivateKey(
+  config: E2eConfig | undefined,
+): Uint8Array | null {
+  const relaySelf = config?.mock?.relaySelf;
+  if (relaySelf === undefined) return MOCK_RELAY_PRIVATE_KEY;
+  if (!relaySelf) return null;
+  const privateKey = config?.mock?.relayPrivateKey;
+  if (!privateKey) return null;
+  try {
+    const secretKey = hexToBytes(privateKey);
+    return getPublicKey(secretKey) === relaySelf.toLowerCase()
+      ? secretKey
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function createMockCosFollowUpChannelMetadataEvent(
+  config: E2eConfig | undefined,
+): RelayEvent | null {
+  const relayPrivateKey = getMockRelayPrivateKey(config);
+  if (!relayPrivateKey) return null;
   return finalizeEvent(
     {
       kind: 39000,
@@ -975,13 +1000,15 @@ function createMockCosFollowUpChannelMetadataEvent(): RelayEvent {
         ["name", "cos-follow-up"],
       ],
     },
-    MOCK_RELAY_PRIVATE_KEY,
+    relayPrivateKey,
   );
 }
 
 function createMockCosFollowUpChannelMembershipEvent(
   config: E2eConfig | undefined,
-): RelayEvent {
+): RelayEvent | null {
+  const relayPrivateKey = getMockRelayPrivateKey(config);
+  if (!relayPrivateKey) return null;
   return finalizeEvent(
     {
       kind: 39002,
@@ -993,7 +1020,7 @@ function createMockCosFollowUpChannelMembershipEvent(
         ["p", getMockMemberPubkey(config).toLowerCase(), "", "member"],
       ],
     },
-    MOCK_RELAY_PRIVATE_KEY,
+    relayPrivateKey,
   );
 }
 
@@ -9136,11 +9163,10 @@ function sendToMockSocket(args: {
       filter.kinds?.includes(39000) &&
       filter["#d"]?.includes(COS_FOLLOW_UP_CHANNEL_ID)
     ) {
-      sendWsText(socket.handler, [
-        "EVENT",
-        subId,
-        createMockCosFollowUpChannelMetadataEvent(),
-      ]);
+      const metadata = createMockCosFollowUpChannelMetadataEvent(getConfig());
+      if (metadata) {
+        sendWsText(socket.handler, ["EVENT", subId, metadata]);
+      }
       sendWsText(socket.handler, ["EOSE", subId]);
       return;
     }
@@ -9156,11 +9182,12 @@ function sendToMockSocket(args: {
         (filter["#p"] ?? []).map((pubkey) => pubkey.toLowerCase()),
       );
       if (
-        requestedAssignees.size === 0 ||
-        membership.tags.some(
-          (tag) =>
-            tag[0] === "p" && requestedAssignees.has(tag[1].toLowerCase()),
-        )
+        membership !== null &&
+        (requestedAssignees.size === 0 ||
+          membership.tags.some(
+            (tag) =>
+              tag[0] === "p" && requestedAssignees.has(tag[1].toLowerCase()),
+          ))
       ) {
         sendWsText(socket.handler, ["EVENT", subId, membership]);
       }
