@@ -224,3 +224,16 @@ export function hasCosWorkspaceModule(
 ): boolean {
   return context?.modules.includes(module) ?? false;
 }
+
+export function currentCosUserContext({
+  data,
+  isError,
+  isPending,
+}: {
+  data: CosUserContext | null | undefined;
+  isError: boolean;
+  isPending: boolean;
+}): CosUserContext | null {
+  if (isError || isPending) return null;
+  return data ?? null;
+}

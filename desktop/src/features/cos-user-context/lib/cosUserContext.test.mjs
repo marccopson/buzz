@@ -3,6 +3,7 @@ import test from "node:test";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
 import {
+  currentCosUserContext,
   hasCosWorkspaceModule,
   parseCosUserContext,
   selectLatestCosUserContext,
@@ -124,4 +125,32 @@ test("selects the latest projection from only the trusted bridge", () => {
     bridge,
   );
   assert.equal(latest?.eventId, second.id);
+});
+
+test("does not authorise cached context after a refresh failure", () => {
+  const cached = parseCosUserContext(contextEvent(), assignee);
+  assert.equal(
+    currentCosUserContext({
+      data: cached,
+      isError: false,
+      isPending: false,
+    }),
+    cached,
+  );
+  assert.equal(
+    currentCosUserContext({
+      data: cached,
+      isError: true,
+      isPending: false,
+    }),
+    null,
+  );
+  assert.equal(
+    currentCosUserContext({
+      data: cached,
+      isError: false,
+      isPending: true,
+    }),
+    null,
+  );
 });

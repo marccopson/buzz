@@ -6,6 +6,7 @@ import { cosFollowUpCommunityScope } from "@/features/cos-follow-up/hooks";
 import { useCosUserContextQuery } from "@/features/cos-user-context/hooks";
 import {
   type CosWorkspaceModule,
+  currentCosUserContext,
   hasCosWorkspaceModule,
 } from "@/features/cos-user-context/lib/cosUserContext";
 import { useIdentityQuery } from "@/shared/api/hooks";
@@ -33,11 +34,12 @@ export function CosWorkspaceModuleGate({
       </div>
     );
   }
+  const currentContext = currentCosUserContext(context);
   const requiredModules = modules ?? (module ? [module] : []);
   if (
     requiredModules.length === 0 ||
     !requiredModules.every((requiredModule) =>
-      hasCosWorkspaceModule(context.data, requiredModule),
+      hasCosWorkspaceModule(currentContext, requiredModule),
     )
   ) {
     return (
