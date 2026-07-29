@@ -110,7 +110,9 @@ class AgentHealthSnapshot {
   final AssuranceStatus assuranceStatus;
   final List<String> assuranceGaps;
   final HealthSourceStatus sourceStatus;
+  final int? sourceMaxAgeSeconds;
   final DateTime? estateObservedAt;
+  final DateTime? agentsObservedAt;
   final List<HealthRecord> nodes;
   final List<AgentHealthRecord> agents;
   final List<HealthRecord> components;
@@ -122,7 +124,9 @@ class AgentHealthSnapshot {
     required this.assuranceStatus,
     required this.assuranceGaps,
     required this.sourceStatus,
+    required this.sourceMaxAgeSeconds,
     required this.estateObservedAt,
+    required this.agentsObservedAt,
     required this.nodes,
     required this.agents,
     required this.components,
@@ -175,7 +179,9 @@ class AgentHealthSnapshot {
       assuranceStatus: _assurance(json['assuranceStatus']),
       assuranceGaps: _strings(json['assuranceGaps'], 'assuranceGaps'),
       sourceStatus: sourceStatus,
+      sourceMaxAgeSeconds: maxAge,
       estateObservedAt: estate?.observedAt,
+      agentsObservedAt: agents?.observedAt,
       nodes: _maps(json['nodes'], 'nodes').map(HealthRecord.fromJson).toList(),
       agents: _maps(
         json['agents'],
@@ -187,6 +193,27 @@ class AgentHealthSnapshot {
       ).map(HealthRecord.fromJson).toList(),
       issues: _strings(json['issues'], 'issues'),
     );
+  }
+
+  DateTime? get sourceExpiresAt {
+    if (sourceStatus != HealthSourceStatus.fresh ||
+        sourceMaxAgeSeconds == null ||
+        estateObservedAt == null ||
+        agentsObservedAt == null) {
+      return null;
+    }
+    final oldestObservation = estateObservedAt!.isBefore(agentsObservedAt!)
+        ? estateObservedAt!
+        : agentsObservedAt!;
+    return oldestObservation.add(Duration(seconds: sourceMaxAgeSeconds!));
+  }
+
+  HealthSourceStatus sourceStatusAt(DateTime now) {
+    final expiresAt = sourceExpiresAt;
+    if (expiresAt != null && !now.toUtc().isBefore(expiresAt)) {
+      return HealthSourceStatus.stale;
+    }
+    return sourceStatus;
   }
 }
 

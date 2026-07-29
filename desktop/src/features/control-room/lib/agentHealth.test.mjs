@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  agentHealthExpiresAt,
   agentHealthEndpoint,
+  effectiveAgentHealthSourceStatus,
   parseAgentHealthSnapshot,
   presentAgentHealth,
 } from "./agentHealth.ts";
@@ -127,6 +129,36 @@ test("labels cached data after a failed refresh as last known", () => {
   assert.equal(presentation.current, false);
   assert.equal(presentation.status, "red");
   assert.match(presentation.label, /last known/i);
+});
+
+test("expires once-fresh evidence from observedAt at the deadline", () => {
+  const value = snapshot();
+  value.source.maxAgeSeconds = 60;
+  value.source.estate.observedAt = "2026-07-29T06:00:00Z";
+  value.source.agents.observedAt = "2026-07-29T06:00:30Z";
+  const parsed = parseAgentHealthSnapshot(value);
+
+  assert.equal(
+    agentHealthExpiresAt(parsed)?.toISOString(),
+    "2026-07-29T06:01:00.000Z",
+  );
+  assert.equal(
+    effectiveAgentHealthSourceStatus(
+      parsed,
+      new Date("2026-07-29T06:00:59.999Z"),
+    ),
+    "fresh",
+  );
+  assert.equal(
+    effectiveAgentHealthSourceStatus(parsed, new Date("2026-07-29T06:01:00Z")),
+    "stale",
+  );
+  assert.equal(
+    presentAgentHealth(parsed, {
+      now: new Date("2026-07-29T06:01:00Z"),
+    }).current,
+    false,
+  );
 });
 
 test("derives the tailnet health endpoint from relay configuration", () => {

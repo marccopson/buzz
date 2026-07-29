@@ -120,6 +120,27 @@ void main() {
     );
   });
 
+  test('expires once-fresh evidence from observedAt at the deadline', () {
+    final value = snapshot();
+    final source = value['source'] as Map<String, dynamic>;
+    source['maxAgeSeconds'] = 60;
+    (source['estate'] as Map<String, dynamic>)['observedAt'] =
+        '2026-07-29T06:00:00Z';
+    (source['agents'] as Map<String, dynamic>)['observedAt'] =
+        '2026-07-29T06:00:30Z';
+    final parsed = AgentHealthSnapshot.fromJson(value);
+
+    expect(parsed.sourceExpiresAt, DateTime.parse('2026-07-29T06:01:00Z'));
+    expect(
+      parsed.sourceStatusAt(DateTime.parse('2026-07-29T06:00:59.999Z')),
+      HealthSourceStatus.fresh,
+    );
+    expect(
+      parsed.sourceStatusAt(DateTime.parse('2026-07-29T06:01:00Z')),
+      HealthSourceStatus.stale,
+    );
+  });
+
   test('derives the tailnet health endpoint from relay configuration', () {
     expect(
       agentHealthUri('wss://forge-do.tailfe35cd.ts.net/').toString(),

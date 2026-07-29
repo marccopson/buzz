@@ -45,72 +45,84 @@ class ControlRoomPage extends ConsumerWidget {
           message: error.toString(),
           onRetry: () => ref.read(agentHealthProvider.notifier).refresh(),
         ),
-        data: (health) => RefreshIndicator(
-          onRefresh: () => ref.read(agentHealthProvider.notifier).refresh(),
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(
-              Grid.gutter,
-              Grid.md,
-              Grid.gutter,
-              96,
-            ),
-            children: [
-              Text(
-                'Estate and brain-agent health, with unknowns shown honestly.',
-                style: context.textTheme.bodyMedium?.copyWith(
-                  color: context.colors.onSurfaceVariant,
-                ),
+        data: (health) {
+          final now =
+              ref
+                  .watch(agentHealthExpiryClockProvider(health.sourceExpiresAt))
+                  .value ??
+              DateTime.now().toUtc();
+          final sourceStatus = health.sourceStatusAt(now);
+          return RefreshIndicator(
+            onRefresh: () => ref.read(agentHealthProvider.notifier).refresh(),
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(
+                Grid.gutter,
+                Grid.md,
+                Grid.gutter,
+                96,
               ),
-              const SizedBox(height: Grid.md),
-              _Summary(snapshot: health, refreshFailed: refreshFailed),
-              if (refreshFailed ||
-                  health.sourceStatus != HealthSourceStatus.fresh) ...[
+              children: [
+                Text(
+                  'Estate and brain-agent health, with unknowns shown honestly.',
+                  style: context.textTheme.bodyMedium?.copyWith(
+                    color: context.colors.onSurfaceVariant,
+                  ),
+                ),
                 const SizedBox(height: Grid.md),
-                _SourceWarning(
-                  status: health.sourceStatus,
+                _Summary(
+                  snapshot: health,
+                  sourceStatus: sourceStatus,
                   refreshFailed: refreshFailed,
                 ),
+                if (refreshFailed ||
+                    sourceStatus != HealthSourceStatus.fresh) ...[
+                  const SizedBox(height: Grid.md),
+                  _SourceWarning(
+                    status: sourceStatus,
+                    refreshFailed: refreshFailed,
+                  ),
+                ],
+                if (health.issues.isNotEmpty) ...[
+                  const SizedBox(height: Grid.md),
+                  _Issues(issues: health.issues),
+                ],
+                const SizedBox(height: Grid.lg),
+                const _SectionTitle('Estate nodes'),
+                const SizedBox(height: Grid.sm),
+                ...health.nodes.map(
+                  (record) => _HealthCard(
+                    record,
+                    current:
+                        !refreshFailed &&
+                        sourceStatus == HealthSourceStatus.fresh,
+                  ),
+                ),
+                const SizedBox(height: Grid.lg),
+                const _SectionTitle('Brain agents'),
+                const SizedBox(height: Grid.sm),
+                ...health.agents.map(
+                  (agent) => _AgentCard(
+                    agent,
+                    current:
+                        !refreshFailed &&
+                        sourceStatus == HealthSourceStatus.fresh,
+                  ),
+                ),
+                const SizedBox(height: Grid.lg),
+                const _SectionTitle('Core components'),
+                const SizedBox(height: Grid.sm),
+                ...health.components.map(
+                  (record) => _HealthCard(
+                    record,
+                    current:
+                        !refreshFailed &&
+                        sourceStatus == HealthSourceStatus.fresh,
+                  ),
+                ),
               ],
-              if (health.issues.isNotEmpty) ...[
-                const SizedBox(height: Grid.md),
-                _Issues(issues: health.issues),
-              ],
-              const SizedBox(height: Grid.lg),
-              const _SectionTitle('Estate nodes'),
-              const SizedBox(height: Grid.sm),
-              ...health.nodes.map(
-                (record) => _HealthCard(
-                  record,
-                  current:
-                      !refreshFailed &&
-                      health.sourceStatus == HealthSourceStatus.fresh,
-                ),
-              ),
-              const SizedBox(height: Grid.lg),
-              const _SectionTitle('Brain agents'),
-              const SizedBox(height: Grid.sm),
-              ...health.agents.map(
-                (agent) => _AgentCard(
-                  agent,
-                  current:
-                      !refreshFailed &&
-                      health.sourceStatus == HealthSourceStatus.fresh,
-                ),
-              ),
-              const SizedBox(height: Grid.lg),
-              const _SectionTitle('Core components'),
-              const SizedBox(height: Grid.sm),
-              ...health.components.map(
-                (record) => _HealthCard(
-                  record,
-                  current:
-                      !refreshFailed &&
-                      health.sourceStatus == HealthSourceStatus.fresh,
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -118,14 +130,19 @@ class ControlRoomPage extends ConsumerWidget {
 
 class _Summary extends StatelessWidget {
   final AgentHealthSnapshot snapshot;
+  final HealthSourceStatus sourceStatus;
   final bool refreshFailed;
 
-  const _Summary({required this.snapshot, required this.refreshFailed});
+  const _Summary({
+    required this.snapshot,
+    required this.sourceStatus,
+    required this.refreshFailed,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isCurrent =
-        !refreshFailed && snapshot.sourceStatus == HealthSourceStatus.fresh;
+        !refreshFailed && sourceStatus == HealthSourceStatus.fresh;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -139,7 +156,7 @@ class _Summary extends StatelessWidget {
                 ? 'Last known — refresh failed'
                 : isCurrent
                 ? _statusLabel(snapshot.operationalStatus)
-                : switch (snapshot.sourceStatus) {
+                : switch (sourceStatus) {
                     HealthSourceStatus.stale => 'Evidence stale',
                     HealthSourceStatus.invalid => 'Evidence invalid',
                     HealthSourceStatus.fresh => 'Unavailable',

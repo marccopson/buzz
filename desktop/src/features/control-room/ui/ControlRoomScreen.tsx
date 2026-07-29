@@ -9,12 +9,14 @@ import {
   Server,
   ShieldCheck,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { useCommunities } from "@/features/communities/useCommunities";
 import {
   type AgentHealthRecord,
   type DimensionState,
   type HealthStatus,
+  agentHealthExpiresAt,
   loadAgentHealth,
   presentAgentHealth,
 } from "@/features/control-room/lib/agentHealth";
@@ -135,6 +137,21 @@ export function ControlRoomScreen() {
     staleTime: 30_000,
   });
   const health = healthQuery.data;
+  const [, setExpiryTick] = useState(0);
+  const expiresAt =
+    health?.source.status === "fresh"
+      ? agentHealthExpiresAt(health)?.getTime()
+      : undefined;
+  useEffect(() => {
+    if (expiresAt === undefined) return;
+    const delay = Math.max(0, expiresAt - Date.now());
+    if (delay === 0) return;
+    const timer = window.setTimeout(
+      () => setExpiryTick((value) => value + 1),
+      delay + 1,
+    );
+    return () => window.clearTimeout(timer);
+  }, [expiresAt]);
   const presentation = health
     ? presentAgentHealth(health, {
         refreshFailed: healthQuery.isRefetchError,

@@ -10,7 +10,13 @@ import 'package:http/testing.dart' as http_testing;
 
 import '../../helpers/widget_helpers.dart';
 
-Map<String, dynamic> healthPayload({String sourceStatus = 'fresh'}) {
+Map<String, dynamic> healthPayload({
+  String sourceStatus = 'fresh',
+  DateTime? observedAt,
+  int maxAgeSeconds = 93600,
+}) {
+  final observedAtText = (observedAt ?? DateTime.now().toUtc())
+      .toIso8601String();
   final dimensions = {
     for (final name in [
       'alive',
@@ -39,16 +45,16 @@ Map<String, dynamic> healthPayload({String sourceStatus = 'fresh'}) {
     'assuranceGaps': ['current-run evidence', 'recovery evidence'],
     'source': {
       'status': sourceStatus,
-      'maxAgeSeconds': 93600,
+      'maxAgeSeconds': maxAgeSeconds,
       'estate': {
         'path': '/root/MAC-Local/reports/infra-check-latest.md',
-        'observedAt': '2026-07-29T06:00:00Z',
+        'observedAt': observedAtText,
         'ageSeconds': 10,
         'sha256': 'a' * 64,
       },
       'agents': {
         'path': '/root/MAC-Local/reports/mac-workspace-hermes-latest.md',
-        'observedAt': '2026-07-29T06:00:00Z',
+        'observedAt': observedAtText,
         'ageSeconds': 10,
         'sha256': 'b' * 64,
       },
@@ -186,6 +192,41 @@ void main() {
       200,
     );
     expect(find.text('Last known: Healthy'), findsWidgets);
+  });
+
+  testWidgets('fails closed when displayed evidence reaches its deadline', (
+    tester,
+  ) async {
+    final observedAt = DateTime.now().toUtc().subtract(
+      const Duration(seconds: 59),
+    );
+    final client = http_testing.MockClient(
+      (_) async => http.Response(
+        jsonEncode(healthPayload(observedAt: observedAt, maxAgeSeconds: 60)),
+        200,
+      ),
+    );
+    addTearDown(client.close);
+
+    await tester.pumpWidget(
+      WidgetHelpers.testable(
+        overrides: [
+          relayConfigProvider.overrideWith(
+            () =>
+                _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
+          ),
+          agentHealthHttpClientProvider.overrideWithValue(client),
+        ],
+        child: const ControlRoomPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Healthy'), findsWidgets);
+
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+
+    expect(find.text('Evidence stale'), findsWidgets);
   });
 }
 

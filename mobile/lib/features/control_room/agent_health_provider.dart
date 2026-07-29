@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -27,6 +28,27 @@ final agentHealthRefreshStatusProvider =
       AgentHealthRefreshStatusNotifier,
       AgentHealthRefreshStatus
     >(AgentHealthRefreshStatusNotifier.new);
+
+final agentHealthExpiryClockProvider = StreamProvider.autoDispose
+    .family<DateTime, DateTime?>((ref, expiresAt) {
+      final now = DateTime.now().toUtc();
+      final controller = StreamController<DateTime>();
+      controller.add(now);
+      Timer? timer;
+      if (expiresAt != null && expiresAt.isAfter(now)) {
+        timer = Timer(expiresAt.difference(now), () {
+          controller.add(expiresAt);
+          controller.close();
+        });
+      } else {
+        controller.close();
+      }
+      ref.onDispose(() {
+        timer?.cancel();
+        if (!controller.isClosed) controller.close();
+      });
+      return controller.stream;
+    });
 
 class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
   @override

@@ -277,7 +277,10 @@ export function parseAgentHealthSnapshot(value: unknown): AgentHealthSnapshot {
 
 export function presentAgentHealth(
   snapshot: AgentHealthSnapshot,
-  { refreshFailed = false }: { refreshFailed?: boolean } = {},
+  {
+    refreshFailed = false,
+    now = new Date(),
+  }: { refreshFailed?: boolean; now?: Date } = {},
 ): AgentHealthPresentation {
   if (refreshFailed) {
     return {
@@ -288,7 +291,8 @@ export function presentAgentHealth(
         "The latest refresh failed. Values below are last-known evidence and are not current health.",
     };
   }
-  if (snapshot.source.status === "stale") {
+  const sourceStatus = effectiveAgentHealthSourceStatus(snapshot, now);
+  if (sourceStatus === "stale") {
     return {
       current: false,
       status: "red",
@@ -297,7 +301,7 @@ export function presentAgentHealth(
         "The authoritative evidence is stale. Values below are last-known and must not be treated as current health.",
     };
   }
-  if (snapshot.source.status === "invalid") {
+  if (sourceStatus === "invalid") {
     return {
       current: false,
       status: "red",
@@ -316,6 +320,38 @@ export function presentAgentHealth(
           ? "Attention"
           : "Unavailable",
   };
+}
+
+export function agentHealthExpiresAt(
+  snapshot: AgentHealthSnapshot,
+): Date | null {
+  if (
+    snapshot.source.status !== "fresh" ||
+    snapshot.source.maxAgeSeconds === undefined ||
+    snapshot.source.estate === undefined ||
+    snapshot.source.agents === undefined
+  ) {
+    return null;
+  }
+  const oldestObservation = Math.min(
+    Date.parse(snapshot.source.estate.observedAt),
+    Date.parse(snapshot.source.agents.observedAt),
+  );
+  return new Date(oldestObservation + snapshot.source.maxAgeSeconds * 1_000);
+}
+
+export function effectiveAgentHealthSourceStatus(
+  snapshot: AgentHealthSnapshot,
+  now = new Date(),
+): SourceStatus {
+  const expiresAt = agentHealthExpiresAt(snapshot);
+  if (
+    expiresAt !== null &&
+    (!Number.isFinite(now.getTime()) || now.getTime() >= expiresAt.getTime())
+  ) {
+    return "stale";
+  }
+  return snapshot.source.status;
 }
 
 export function agentHealthEndpoint(relayUrl: string): URL {
