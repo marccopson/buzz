@@ -24,6 +24,7 @@ function contextEvent({
   createdAt = 1,
   modules = ["today", "my_actions", "messages", "assistant"],
   channelId = channel,
+  tenantSlug = "mac-surfacing",
 } = {}) {
   return finalizeEvent(
     {
@@ -36,7 +37,7 @@ function contextEvent({
       ],
       content: JSON.stringify({
         schema: "mac-workspace/cos-user-context/v1",
-        tenant_slug: "mac-surfacing",
+        tenant_slug: tenantSlug,
         user: {
           id: 42,
           name: "Jake Wherton",
@@ -109,6 +110,15 @@ test("accepts least-privilege module subsets and rejects malformed modules", () 
     assignee,
   );
   assert.equal(hasCosWorkspaceModule(restricted, "my_actions"), false);
+  assert.throws(() =>
+    parseCosUserContext(
+      contextEvent({
+        modules: ["today", "messages"],
+        tenantSlug: "mac--surfacing",
+      }),
+      assignee,
+    ),
+  );
   assert.throws(() =>
     parseCosUserContext(
       contextEvent({ modules: ["today", "secrets"] }),

@@ -147,6 +147,19 @@ void main() {
       },
       {
         'schema': 'mac-workspace/cos-user-context/v1',
+        'tenant_slug': 'mac--surfacing',
+        'user': {
+          'id': 42,
+          'name': 'Jake Wherton',
+          'role': 'managing_director',
+          'role_label': 'Managing Director',
+        },
+        'modules': ['today', 'messages'],
+        'assistant': null,
+        'generated_at': '2026-07-29T09:00:00Z',
+      },
+      {
+        'schema': 'mac-workspace/cos-user-context/v1',
         'tenant_slug': 'mac-surfacing',
         'user': {
           'id': null,
