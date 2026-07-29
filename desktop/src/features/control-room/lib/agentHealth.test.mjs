@@ -91,6 +91,21 @@ test("rejects incomplete source evidence", () => {
   assert.throws(() => parseAgentHealthSnapshot(value), /incomplete/);
 });
 
+test("rejects negative source ages and derives stale from the maximum age", () => {
+  const negative = snapshot();
+  negative.source.estate.ageSeconds = -1;
+  assert.throws(
+    () => parseAgentHealthSnapshot(negative),
+    /must not be negative/,
+  );
+
+  const overAge = snapshot();
+  overAge.source.agents.ageSeconds = overAge.source.maxAgeSeconds + 1;
+  const parsed = parseAgentHealthSnapshot(overAge);
+  assert.equal(parsed.source.status, "stale");
+  assert.equal(presentAgentHealth(parsed).current, false);
+});
+
 test("presents stale and invalid evidence as unavailable", () => {
   for (const sourceStatus of ["stale", "invalid"]) {
     const value = snapshot();

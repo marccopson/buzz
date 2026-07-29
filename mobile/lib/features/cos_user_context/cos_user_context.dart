@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:nostr/nostr.dart' as nostr;
+
 import '../../shared/relay/nostr_models.dart';
 
 const cosUserContextSchema = 'mac-workspace/cos-user-context/v1';
@@ -34,6 +36,20 @@ CosUserContext parseCosUserContext(
   NostrEvent event, {
   required String expectedAssignee,
 }) {
+  try {
+    nostr.Event(
+      event.id,
+      event.pubkey,
+      event.createdAt,
+      event.kind,
+      event.tags,
+      event.content,
+      event.sig,
+      verify: true,
+    );
+  } on Object {
+    throw const FormatException('COS user-context signature is invalid');
+  }
   if (event.kind != EventKind.cosUserContext) {
     throw const FormatException('Expected a COS user-context event');
   }

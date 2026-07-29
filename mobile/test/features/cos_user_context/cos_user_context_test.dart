@@ -1,31 +1,38 @@
 import 'package:buzz/features/cos_user_context/cos_user_context.dart';
 import 'package:buzz/shared/relay/nostr_models.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:nostr/nostr.dart' as nostr;
 
 void main() {
-  const assignee = 'a';
-  const bridge = 'b';
+  const assignee =
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const bridgeSecret =
+      '0101010101010101010101010101010101010101010101010101010101010101';
+  const attackerSecret =
+      '0202020202020202020202020202020202020202020202020202020202020202';
+  final bridge = nostr.Keys(bridgeSecret).public;
 
   NostrEvent event({
-    String id = 'event-1',
     int createdAt = 1,
-    String pubkey = bridge,
+    String secretKey = bridgeSecret,
     String modules =
         '["today","my_actions","messages","agents","running_order"]',
-  }) => NostrEvent(
-    id: id,
-    pubkey: pubkey,
-    createdAt: createdAt,
-    kind: EventKind.cosUserContext,
-    tags: const [
-      ['h', 'mac'],
-      ['p', assignee],
-      ['d', 'context:$assignee'],
-    ],
-    content:
-        '{"schema":"mac-workspace/cos-user-context/v1","modules":$modules}',
-    sig: 'sig',
-  );
+  }) {
+    final signed = nostr.Event.from(
+      kind: EventKind.cosUserContext,
+      content:
+          '{"schema":"mac-workspace/cos-user-context/v1","modules":$modules}',
+      tags: const [
+        ['h', 'mac'],
+        ['p', assignee],
+        ['d', 'context:$assignee'],
+      ],
+      secretKey: secretKey,
+      createdAt: createdAt,
+      verify: true,
+    );
+    return NostrEvent.fromJson(signed.toMap());
+  }
 
   test('requires both technical modules for Control Room', () {
     final context = parseCosUserContext(event(), expectedAssignee: assignee);
@@ -35,7 +42,7 @@ void main() {
   test('fails closed for an untrusted or incomplete projection', () {
     expect(
       selectLatestCosUserContext(
-        [event(pubkey: 'attacker')],
+        [event(secretKey: attackerSecret)],
         assigneePubkey: assignee,
         trustedBridgePubkey: bridge,
       ),
@@ -48,14 +55,32 @@ void main() {
       ),
       throwsFormatException,
     );
+    final signed = event();
+    expect(
+      () => parseCosUserContext(
+        NostrEvent(
+          id: signed.id,
+          pubkey: signed.pubkey,
+          createdAt: signed.createdAt,
+          kind: signed.kind,
+          tags: signed.tags,
+          content: '${signed.content} ',
+          sig: signed.sig,
+        ),
+        expectedAssignee: assignee,
+      ),
+      throwsFormatException,
+    );
   });
 
   test('selects the newest trusted projection deterministically', () {
+    final older = event(createdAt: 1);
+    final newer = event(createdAt: 2);
     final selected = selectLatestCosUserContext(
-      [event(id: 'older', createdAt: 1), event(id: 'newer', createdAt: 2)],
+      [older, newer],
       assigneePubkey: assignee,
       trustedBridgePubkey: bridge,
     );
-    expect(selected?.eventId, 'newer');
+    expect(selected?.eventId, newer.id);
   });
 }

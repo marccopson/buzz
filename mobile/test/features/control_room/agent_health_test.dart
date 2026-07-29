@@ -82,6 +82,29 @@ void main() {
     );
   });
 
+  test(
+    'rejects negative source ages and derives stale from the maximum age',
+    () {
+      final negative = snapshot();
+      final negativeSource = negative['source'] as Map<String, dynamic>;
+      final negativeEstate = negativeSource['estate'] as Map<String, dynamic>;
+      negativeEstate['ageSeconds'] = -1;
+      expect(
+        () => AgentHealthSnapshot.fromJson(negative),
+        throwsFormatException,
+      );
+
+      final overAge = snapshot();
+      final source = overAge['source'] as Map<String, dynamic>;
+      (source['agents'] as Map<String, dynamic>)['ageSeconds'] =
+          (source['maxAgeSeconds'] as int) + 1;
+      expect(
+        AgentHealthSnapshot.fromJson(overAge).sourceStatus,
+        HealthSourceStatus.stale,
+      );
+    },
+  );
+
   test('retains stale and invalid source state for fail-closed display', () {
     expect(
       AgentHealthSnapshot.fromJson(

@@ -106,7 +106,7 @@ void main() {
     expect(find.text('Healthy'), findsWidgets);
     expect(find.text('partial'), findsOneWidget);
     expect(find.text('2 known gap(s)'), findsOneWidget);
-    expect(find.text('Sammi'), findsOneWidget);
+    expect(find.text('Sammi', skipOffstage: false), findsOneWidget);
     expect(find.text('working · Unknown'), findsOneWidget);
     expect(find.text('alive · Pass'), findsOneWidget);
   });
@@ -146,6 +146,46 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('preserves last-known values after a failed refresh', (
+    tester,
+  ) async {
+    var requests = 0;
+    final client = http_testing.MockClient((_) async {
+      requests += 1;
+      if (requests == 1) {
+        return http.Response(jsonEncode(healthPayload()), 200);
+      }
+      return http.Response('unavailable', 503);
+    });
+    addTearDown(client.close);
+
+    await tester.pumpWidget(
+      WidgetHelpers.testable(
+        overrides: [
+          relayConfigProvider.overrideWith(
+            () =>
+                _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
+          ),
+          agentHealthHttpClientProvider.overrideWithValue(client),
+        ],
+        child: const ControlRoomPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Sammi'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Refresh'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Last known — refresh failed'), findsWidgets);
+    expect(find.text('Sammi', skipOffstage: false), findsOneWidget);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('control-room-health-brain')),
+      200,
+    );
+    expect(find.text('Last known: Healthy'), findsWidgets);
   });
 }
 

@@ -139,15 +139,16 @@ class AgentHealthSnapshot {
       throw const FormatException('Unsupported agent-health authority');
     }
     final source = _requiredMap(json['source'], 'source');
-    final sourceStatus = switch (source['status']) {
+    final claimedSourceStatus = switch (source['status']) {
       'fresh' => HealthSourceStatus.fresh,
       'stale' => HealthSourceStatus.stale,
       'invalid' => HealthSourceStatus.invalid,
       _ => throw const FormatException('Unsupported source status'),
     };
     final hasEvidence = source['estate'] != null && source['agents'] != null;
-    if (sourceStatus != HealthSourceStatus.invalid) {
-      final maxAge = _integer(source['maxAgeSeconds'], 'source.maxAgeSeconds');
+    int? maxAge;
+    if (claimedSourceStatus != HealthSourceStatus.invalid) {
+      maxAge = _integer(source['maxAgeSeconds'], 'source.maxAgeSeconds');
       if (maxAge < 60 || !hasEvidence) {
         throw const FormatException(
           'Fresh or stale source evidence is incomplete',
@@ -157,9 +158,17 @@ class AgentHealthSnapshot {
     final estate = source['estate'] == null
         ? null
         : _sourceEvidence(source['estate'], 'source.estate');
-    if (source['agents'] != null) {
-      _sourceEvidence(source['agents'], 'source.agents');
-    }
+    final agents = source['agents'] == null
+        ? null
+        : _sourceEvidence(source['agents'], 'source.agents');
+    final sourceStatus =
+        claimedSourceStatus == HealthSourceStatus.fresh &&
+            maxAge != null &&
+            estate != null &&
+            agents != null &&
+            (estate.ageSeconds > maxAge || agents.ageSeconds > maxAge)
+        ? HealthSourceStatus.stale
+        : claimedSourceStatus;
     return AgentHealthSnapshot(
       generatedAt: _timestamp(json['generatedAt'], 'generatedAt'),
       operationalStatus: _status(json['operationalStatus']),
@@ -183,20 +192,24 @@ class AgentHealthSnapshot {
 
 class _SourceEvidence {
   final DateTime observedAt;
+  final int ageSeconds;
 
-  const _SourceEvidence(this.observedAt);
+  const _SourceEvidence(this.observedAt, this.ageSeconds);
 }
 
 _SourceEvidence _sourceEvidence(dynamic value, String label) {
   final evidence = _requiredMap(value, label);
   _text(evidence['path'], '$label.path');
   final observedAt = _timestamp(evidence['observedAt'], '$label.observedAt');
-  _integer(evidence['ageSeconds'], '$label.ageSeconds');
+  final ageSeconds = _integer(evidence['ageSeconds'], '$label.ageSeconds');
+  if (ageSeconds < 0) {
+    throw FormatException('$label.ageSeconds must not be negative');
+  }
   final digest = _text(evidence['sha256'], '$label.sha256');
   if (!RegExp(r'^[0-9a-f]{64}$').hasMatch(digest)) {
     throw FormatException('$label.sha256 must be a SHA-256 digest');
   }
-  return _SourceEvidence(observedAt);
+  return _SourceEvidence(observedAt, ageSeconds);
 }
 
 Uri agentHealthUri(String relayUrl) {

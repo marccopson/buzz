@@ -12,11 +12,31 @@ final agentHealthHttpClientProvider = Provider<http.Client>((ref) {
   return client;
 });
 
+enum AgentHealthRefreshStatus { idle, refreshing, failed }
+
+class AgentHealthRefreshStatusNotifier
+    extends Notifier<AgentHealthRefreshStatus> {
+  @override
+  AgentHealthRefreshStatus build() => AgentHealthRefreshStatus.idle;
+
+  void update(AgentHealthRefreshStatus status) => state = status;
+}
+
+final agentHealthRefreshStatusProvider =
+    NotifierProvider<
+      AgentHealthRefreshStatusNotifier,
+      AgentHealthRefreshStatus
+    >(AgentHealthRefreshStatusNotifier.new);
+
 class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
   @override
-  Future<AgentHealthSnapshot> build() {
+  Future<AgentHealthSnapshot> build() async {
     ref.watch(relayConfigProvider);
-    return _fetch();
+    final snapshot = await _fetch();
+    ref
+        .read(agentHealthRefreshStatusProvider.notifier)
+        .update(AgentHealthRefreshStatus.idle);
+    return snapshot;
   }
 
   Future<AgentHealthSnapshot> _fetch() async {
@@ -36,8 +56,17 @@ class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
   }
 
   Future<void> refresh() async {
-    state = const AsyncLoading();
-    state = await AsyncValue.guard(_fetch);
+    final refreshStatus = ref.read(agentHealthRefreshStatusProvider.notifier);
+    refreshStatus.update(AgentHealthRefreshStatus.refreshing);
+    try {
+      state = AsyncData(await _fetch());
+      refreshStatus.update(AgentHealthRefreshStatus.idle);
+    } on Object catch (error, stackTrace) {
+      refreshStatus.update(AgentHealthRefreshStatus.failed);
+      if (!state.hasValue) {
+        state = AsyncError(error, stackTrace);
+      }
+    }
   }
 }
 

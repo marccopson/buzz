@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
 
 import {
   hasCosWorkspaceModule,
@@ -8,47 +9,48 @@ import {
 } from "./cosUserContext.ts";
 
 const assignee = "a".repeat(64);
-const bridge = "b".repeat(64);
+const bridgeSecret = new Uint8Array(32).fill(1);
+const attackerSecret = new Uint8Array(32).fill(2);
+const bridge = getPublicKey(bridgeSecret);
 const channel = "550e8400-e29b-41d4-a716-446655440000";
 
 function contextEvent({
-  author = bridge,
+  secretKey = bridgeSecret,
   createdAt = 1,
-  eventId = "1".repeat(64),
   modules = ["today", "my_actions", "messages", "assistant"],
 } = {}) {
-  return {
-    id: eventId,
-    pubkey: author,
-    created_at: createdAt,
-    kind: 37012,
-    tags: [
-      ["h", channel],
-      ["d", `context:${assignee}`],
-      ["p", assignee],
-    ],
-    content: JSON.stringify({
-      schema: "mac-workspace/cos-user-context/v1",
-      tenant_slug: "mac-surfacing",
-      user: {
-        id: 42,
-        name: "Jake Wherton",
-        role: "contractor_admin",
-        role_label: "Leadership",
-      },
-      modules,
-      assistant: modules.includes("assistant")
-        ? {
-            key: "mac-assistant",
-            label: "MAC Assistant",
-            execution: "brain-vps",
-            memory_scope: "private-channel",
-          }
-        : null,
-      generated_at: "2026-07-28T08:00:00Z",
-    }),
-    sig: "c".repeat(128),
-  };
+  return finalizeEvent(
+    {
+      created_at: createdAt,
+      kind: 37012,
+      tags: [
+        ["h", channel],
+        ["d", `context:${assignee}`],
+        ["p", assignee],
+      ],
+      content: JSON.stringify({
+        schema: "mac-workspace/cos-user-context/v1",
+        tenant_slug: "mac-surfacing",
+        user: {
+          id: 42,
+          name: "Jake Wherton",
+          role: "contractor_admin",
+          role_label: "Leadership",
+        },
+        modules,
+        assistant: modules.includes("assistant")
+          ? {
+              key: "mac-assistant",
+              label: "MAC Assistant",
+              execution: "brain-vps",
+              memory_scope: "private-channel",
+            }
+          : null,
+        generated_at: "2026-07-28T08:00:00Z",
+      }),
+    },
+    secretKey,
+  );
 }
 
 test("parses a private staff context and exposes only projected modules", () => {
@@ -78,27 +80,35 @@ test("fails closed on privileged or malformed module projections", () => {
       assignee,
     ),
   );
+  assert.throws(
+    () =>
+      parseCosUserContext(
+        { ...contextEvent(), content: '{"schema":"tampered"}' },
+        assignee,
+      ),
+    /signature is invalid/,
+  );
 });
 
 test("selects the latest projection from only the trusted bridge", () => {
+  const first = contextEvent();
+  const second = contextEvent({
+    createdAt: 2,
+    modules: [
+      "today",
+      "my_actions",
+      "messages",
+      "assistant",
+      "running_order",
+      "agents",
+    ],
+  });
   const latest = selectLatestCosUserContext(
     [
-      contextEvent(),
+      first,
+      second,
       contextEvent({
-        eventId: "2".repeat(64),
-        createdAt: 2,
-        modules: [
-          "today",
-          "my_actions",
-          "messages",
-          "assistant",
-          "running_order",
-          "agents",
-        ],
-      }),
-      contextEvent({
-        author: "d".repeat(64),
-        eventId: "3".repeat(64),
+        secretKey: attackerSecret,
         createdAt: 3,
         modules: [
           "today",
@@ -113,5 +123,5 @@ test("selects the latest projection from only the trusted bridge", () => {
     assignee,
     bridge,
   );
-  assert.equal(latest?.eventId, "2".repeat(64));
+  assert.equal(latest?.eventId, second.id);
 });

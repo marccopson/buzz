@@ -918,9 +918,10 @@ function createMockCosUserContextEvent(
   const assigneePubkey = getMockMemberPubkey(config).toLowerCase();
   const authorityPubkey =
     config?.mock?.cosFollowUpBridgePubkey === undefined
-      ? DEFAULT_MOCK_IDENTITY.pubkey
+      ? MOCK_COS_BRIDGE_PUBKEY
       : config.mock.cosFollowUpBridgePubkey;
   if (!authorityPubkey) return null;
+  if (authorityPubkey.toLowerCase() !== MOCK_COS_BRIDGE_PUBKEY) return null;
 
   const isAdmin = access === undefined || access === "admin";
   const modules = [
@@ -930,32 +931,35 @@ function createMockCosUserContextEvent(
     "assistant",
     ...(isAdmin ? ["running_order", "agents"] : []),
   ];
-  return createMockEvent(
-    KIND_COS_USER_CONTEXT,
-    JSON.stringify({
-      schema: "mac-workspace/cos-user-context/v1",
-      tenant_slug: "mac-surfacing",
-      user: {
-        id: isAdmin ? 1 : 2,
-        name: isAdmin ? "MAC Workspace Admin" : "MAC Staff Member",
-        role: isAdmin ? "contractor_admin" : "staff",
-        role_label: isAdmin ? "Leadership" : "Staff",
-      },
-      modules,
-      assistant: {
-        key: "mac-assistant",
-        label: "MAC Assistant",
-        execution: "brain-vps",
-        memory_scope: "private-channel",
-      },
-      generated_at: new Date().toISOString(),
-    }),
-    [
-      ["h", STARTER_GENERAL_CHANNEL_ID],
-      ["d", `context:${assigneePubkey}`],
-      ["p", assigneePubkey],
-    ],
-    authorityPubkey,
+  return finalizeEvent(
+    {
+      kind: KIND_COS_USER_CONTEXT,
+      created_at: Math.floor(Date.now() / 1000),
+      content: JSON.stringify({
+        schema: "mac-workspace/cos-user-context/v1",
+        tenant_slug: "mac-surfacing",
+        user: {
+          id: isAdmin ? 1 : 2,
+          name: isAdmin ? "MAC Workspace Admin" : "MAC Staff Member",
+          role: isAdmin ? "contractor_admin" : "staff",
+          role_label: isAdmin ? "Leadership" : "Staff",
+        },
+        modules,
+        assistant: {
+          key: "mac-assistant",
+          label: "MAC Assistant",
+          execution: "brain-vps",
+          memory_scope: "private-channel",
+        },
+        generated_at: new Date().toISOString(),
+      }),
+      tags: [
+        ["h", STARTER_GENERAL_CHANNEL_ID],
+        ["d", `context:${assigneePubkey}`],
+        ["p", assigneePubkey],
+      ],
+    },
+    MOCK_COS_BRIDGE_PRIVATE_KEY,
   );
 }
 
@@ -1297,6 +1301,8 @@ const DEFAULT_MOCK_IDENTITY = {
   pubkey: "deadbeef".repeat(8),
   display_name: "npub1mock...",
 };
+const MOCK_COS_BRIDGE_PRIVATE_KEY = hexToBytes("04".repeat(32));
+const MOCK_COS_BRIDGE_PUBKEY = getPublicKey(MOCK_COS_BRIDGE_PRIVATE_KEY);
 const DEFAULT_REAL_IDENTITY = {
   privateKey:
     "3dbaebadb5dfd777ff25149ee230d907a15a9e1294b40b830661e65bb42f6c03",
@@ -11302,7 +11308,7 @@ export function maybeInstallE2eTauriMocks() {
         return activeConfig?.mock?.relaySelf ?? null;
       case "get_cos_follow_up_bridge_pubkey":
         return activeConfig?.mock?.cosFollowUpBridgePubkey === undefined
-          ? DEFAULT_MOCK_IDENTITY.pubkey
+          ? MOCK_COS_BRIDGE_PUBKEY
           : activeConfig.mock.cosFollowUpBridgePubkey;
       case "archive_identity":
       case "unarchive_identity":

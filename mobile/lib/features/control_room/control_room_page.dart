@@ -13,6 +13,8 @@ class ControlRoomPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final snapshot = ref.watch(agentHealthProvider);
+    final refreshStatus = ref.watch(agentHealthRefreshStatusProvider);
+    final refreshFailed = refreshStatus == AgentHealthRefreshStatus.failed;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Control Room'),
@@ -28,7 +30,9 @@ class ControlRoomPage extends ConsumerWidget {
           ),
           IconButton(
             tooltip: 'Refresh',
-            onPressed: snapshot.isLoading
+            onPressed:
+                snapshot.isLoading ||
+                    refreshStatus == AgentHealthRefreshStatus.refreshing
                 ? null
                 : () => ref.read(agentHealthProvider.notifier).refresh(),
             icon: const Icon(LucideIcons.refreshCw),
@@ -58,10 +62,14 @@ class ControlRoomPage extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: Grid.md),
-              _Summary(snapshot: health),
-              if (health.sourceStatus != HealthSourceStatus.fresh) ...[
+              _Summary(snapshot: health, refreshFailed: refreshFailed),
+              if (refreshFailed ||
+                  health.sourceStatus != HealthSourceStatus.fresh) ...[
                 const SizedBox(height: Grid.md),
-                _SourceWarning(status: health.sourceStatus),
+                _SourceWarning(
+                  status: health.sourceStatus,
+                  refreshFailed: refreshFailed,
+                ),
               ],
               if (health.issues.isNotEmpty) ...[
                 const SizedBox(height: Grid.md),
@@ -73,7 +81,9 @@ class ControlRoomPage extends ConsumerWidget {
               ...health.nodes.map(
                 (record) => _HealthCard(
                   record,
-                  current: health.sourceStatus == HealthSourceStatus.fresh,
+                  current:
+                      !refreshFailed &&
+                      health.sourceStatus == HealthSourceStatus.fresh,
                 ),
               ),
               const SizedBox(height: Grid.lg),
@@ -82,7 +92,9 @@ class ControlRoomPage extends ConsumerWidget {
               ...health.agents.map(
                 (agent) => _AgentCard(
                   agent,
-                  current: health.sourceStatus == HealthSourceStatus.fresh,
+                  current:
+                      !refreshFailed &&
+                      health.sourceStatus == HealthSourceStatus.fresh,
                 ),
               ),
               const SizedBox(height: Grid.lg),
@@ -91,7 +103,9 @@ class ControlRoomPage extends ConsumerWidget {
               ...health.components.map(
                 (record) => _HealthCard(
                   record,
-                  current: health.sourceStatus == HealthSourceStatus.fresh,
+                  current:
+                      !refreshFailed &&
+                      health.sourceStatus == HealthSourceStatus.fresh,
                 ),
               ),
             ],
@@ -104,12 +118,14 @@ class ControlRoomPage extends ConsumerWidget {
 
 class _Summary extends StatelessWidget {
   final AgentHealthSnapshot snapshot;
+  final bool refreshFailed;
 
-  const _Summary({required this.snapshot});
+  const _Summary({required this.snapshot, required this.refreshFailed});
 
   @override
   Widget build(BuildContext context) {
-    final isCurrent = snapshot.sourceStatus == HealthSourceStatus.fresh;
+    final isCurrent =
+        !refreshFailed && snapshot.sourceStatus == HealthSourceStatus.fresh;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -119,7 +135,9 @@ class _Summary extends StatelessWidget {
               isCurrent ? snapshot.operationalStatus : HealthStatus.red,
             ),
             title: 'Operational',
-            value: isCurrent
+            value: refreshFailed
+                ? 'Last known — refresh failed'
+                : isCurrent
                 ? _statusLabel(snapshot.operationalStatus)
                 : switch (snapshot.sourceStatus) {
                     HealthSourceStatus.stale => 'Evidence stale',
@@ -292,12 +310,15 @@ class _HealthCard extends StatelessWidget {
 
 class _SourceWarning extends StatelessWidget {
   final HealthSourceStatus status;
+  final bool refreshFailed;
 
-  const _SourceWarning({required this.status});
+  const _SourceWarning({required this.status, required this.refreshFailed});
 
   @override
   Widget build(BuildContext context) {
-    final label = status == HealthSourceStatus.stale
+    final label = refreshFailed
+        ? 'Last known — refresh failed'
+        : status == HealthSourceStatus.stale
         ? 'Evidence stale'
         : 'Evidence invalid';
     return Card(

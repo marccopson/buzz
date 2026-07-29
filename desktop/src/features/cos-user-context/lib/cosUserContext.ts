@@ -1,5 +1,6 @@
 import type { RelayEvent } from "@/shared/api/types";
 import { KIND_COS_USER_CONTEXT } from "@/shared/constants/kinds";
+import { verifyEvent } from "nostr-tools/pure";
 
 export const COS_USER_CONTEXT_SCHEMA = "mac-workspace/cos-user-context/v1";
 
@@ -99,6 +100,25 @@ export function parseCosUserContext(
   event: RelayEvent,
   expectedAssignee?: string,
 ): CosUserContext {
+  try {
+    // Verify a fresh structural copy so nostr-tools cannot reuse a cached
+    // verifiedSymbol from a previously verified, subsequently mutated object.
+    if (
+      !verifyEvent({
+        id: event.id,
+        pubkey: event.pubkey,
+        created_at: event.created_at,
+        kind: event.kind,
+        tags: event.tags.map((tag) => [...tag]),
+        content: event.content,
+        sig: event.sig,
+      })
+    ) {
+      throw new Error("invalid signature");
+    }
+  } catch {
+    throw new Error("COS user context signature is invalid");
+  }
   if (event.kind !== KIND_COS_USER_CONTEXT) {
     throw new Error("Expected a COS user context event");
   }

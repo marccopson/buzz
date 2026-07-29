@@ -194,10 +194,14 @@ function sourceEvidence(value: unknown, label: string): SourceEvidence {
   if (!SHA256.test(digest)) {
     throw new Error(`${label}.sha256 must be a SHA-256 digest`);
   }
+  const ageSeconds = integer(evidence.ageSeconds, `${label}.ageSeconds`);
+  if (ageSeconds < 0) {
+    throw new Error(`${label}.ageSeconds must not be negative`);
+  }
   return {
     path: string(evidence.path, `${label}.path`),
     observedAt: timestamp(evidence.observedAt, `${label}.observedAt`),
-    ageSeconds: integer(evidence.ageSeconds, `${label}.ageSeconds`),
+    ageSeconds,
     sha256: digest,
   };
 }
@@ -240,6 +244,14 @@ export function parseAgentHealthSnapshot(value: unknown): AgentHealthSnapshot {
   ) {
     throw new Error("Fresh or stale source evidence is incomplete");
   }
+  const effectiveSourceStatus =
+    sourceStatus === "fresh" &&
+    maxAgeSeconds !== undefined &&
+    estate !== undefined &&
+    agentEvidence !== undefined &&
+    Math.max(estate.ageSeconds, agentEvidence.ageSeconds) > maxAgeSeconds
+      ? "stale"
+      : sourceStatus;
   return {
     schemaVersion: "mac-agent-health/v1",
     generatedAt: timestamp(raw.generatedAt, "generatedAt"),
@@ -251,7 +263,7 @@ export function parseAgentHealthSnapshot(value: unknown): AgentHealthSnapshot {
     assuranceStatus: assurance(raw.assuranceStatus),
     assuranceGaps: strings(raw.assuranceGaps, "assuranceGaps"),
     source: {
-      status: sourceStatus as SourceStatus,
+      status: effectiveSourceStatus as SourceStatus,
       maxAgeSeconds,
       estate,
       agents: agentEvidence,
