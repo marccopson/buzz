@@ -36,7 +36,9 @@ class HomePage extends HookConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tabIndex = useState(0);
-    final workspaceContext = ref.watch(cosUserContextProvider).value;
+    final workspaceContext = currentCosUserContext(
+      ref.watch(cosUserContextProvider),
+    );
     final destinations = <_HomeDestination>[
       const _HomeDestination(
         icon: LucideIcons.house300,

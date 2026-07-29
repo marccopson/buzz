@@ -10,6 +10,13 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
+  const technicalContext = CosUserContext(
+    eventId: 'context',
+    assigneePubkey: 'user',
+    modules: ['today', 'my_actions', 'messages', 'agents', 'running_order'],
+    createdAt: 1,
+  );
+
   Future<Widget> buildHome({bool technical = true}) async {
     SharedPreferences.setMockInitialValues({});
     final prefs = await SharedPreferences.getInstance();
@@ -17,20 +24,7 @@ void main() {
       overrides: [
         savedPrefsProvider.overrideWithValue(prefs),
         cosUserContextProvider.overrideWith(
-          (ref) async => technical
-              ? const CosUserContext(
-                  eventId: 'context',
-                  assigneePubkey: 'user',
-                  modules: [
-                    'today',
-                    'my_actions',
-                    'messages',
-                    'agents',
-                    'running_order',
-                  ],
-                  createdAt: 1,
-                )
-              : null,
+          (ref) async => technical ? technicalContext : null,
         ),
       ],
       child: MaterialApp(
@@ -39,6 +33,23 @@ void main() {
       ),
     );
   }
+
+  test('fails closed while role context is loading or errored', () {
+    expect(
+      currentCosUserContext(const AsyncLoading<CosUserContext?>()),
+      isNull,
+    );
+    expect(
+      currentCosUserContext(
+        AsyncError<CosUserContext?>('revoked', StackTrace.current),
+      ),
+      isNull,
+    );
+    expect(
+      currentCosUserContext(const AsyncData<CosUserContext?>(technicalContext)),
+      same(technicalContext),
+    );
+  });
 
   testWidgets('shows icon-only navigation and an aligned quick action', (
     tester,

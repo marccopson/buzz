@@ -7,7 +7,7 @@ import '../cos_follow_up/cos_follow_up_authority.dart';
 import 'cos_user_context.dart';
 
 final cosUserContextProvider = FutureProvider<CosUserContext?>((ref) async {
-  final refresh = Timer(const Duration(minutes: 5), ref.invalidateSelf);
+  final refresh = Timer(const Duration(minutes: 1), ref.invalidateSelf);
   ref.onDispose(refresh.cancel);
   final pubkey = ref.watch(myPubkeyProvider)?.trim().toLowerCase();
   if (pubkey == null || pubkey.isEmpty) return null;
@@ -31,3 +31,8 @@ final cosUserContextProvider = FutureProvider<CosUserContext?>((ref) async {
     trustedBridgePubkey: bridgePubkey,
   );
 });
+
+CosUserContext? currentCosUserContext(AsyncValue<CosUserContext?> result) {
+  if (result.isLoading || result.hasError) return null;
+  return result.value;
+}

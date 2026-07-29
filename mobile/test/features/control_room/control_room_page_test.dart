@@ -228,6 +228,35 @@ void main() {
 
     expect(find.text('Evidence stale'), findsWidgets);
   });
+
+  testWidgets('polls authoritative health every minute', (tester) async {
+    var requests = 0;
+    final client = http_testing.MockClient((_) async {
+      requests += 1;
+      return http.Response(jsonEncode(healthPayload()), 200);
+    });
+    addTearDown(client.close);
+
+    await tester.pumpWidget(
+      WidgetHelpers.testable(
+        overrides: [
+          relayConfigProvider.overrideWith(
+            () =>
+                _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
+          ),
+          agentHealthHttpClientProvider.overrideWithValue(client),
+        ],
+        child: const ControlRoomPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(requests, 1);
+
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pumpAndSettle();
+
+    expect(requests, 2);
+  });
 }
 
 class _TestRelayConfigNotifier extends RelayConfigNotifier {

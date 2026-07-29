@@ -51,9 +51,17 @@ final agentHealthExpiryClockProvider = StreamProvider.autoDispose
     });
 
 class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
+  Timer? _poll;
+
   @override
   Future<AgentHealthSnapshot> build() async {
     ref.watch(relayConfigProvider);
+    _poll?.cancel();
+    _poll = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => unawaited(refresh()),
+    );
+    ref.onDispose(() => _poll?.cancel());
     final snapshot = await _fetch();
     ref
         .read(agentHealthRefreshStatusProvider.notifier)
@@ -79,6 +87,10 @@ class AgentHealthNotifier extends AsyncNotifier<AgentHealthSnapshot> {
 
   Future<void> refresh() async {
     final refreshStatus = ref.read(agentHealthRefreshStatusProvider.notifier);
+    if (ref.read(agentHealthRefreshStatusProvider) ==
+        AgentHealthRefreshStatus.refreshing) {
+      return;
+    }
     refreshStatus.update(AgentHealthRefreshStatus.refreshing);
     try {
       state = AsyncData(await _fetch());
