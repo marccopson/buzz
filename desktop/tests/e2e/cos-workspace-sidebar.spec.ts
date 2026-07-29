@@ -36,3 +36,24 @@ test("staff context never exposes privileged technical controls", async ({
   await expect(page.getByTestId("open-control-room-view")).toHaveCount(0);
   await expect(page.getByTestId("open-workflows-view")).toHaveCount(0);
 });
+
+test("Today hides retained privileged shortcuts while context refreshes", async ({
+  page,
+}) => {
+  await installMockBridge(page, {
+    cosUserContext: "admin",
+    cosUserContextDelayMs: 750,
+  });
+
+  await page.goto("/");
+  await page.getByTestId("open-today-view").click();
+  await expect(page.getByTestId("today-assistant")).toBeVisible();
+  await expect(page.getByTestId("today-running-order")).toBeVisible();
+
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(page.getByTestId("today-assistant")).toHaveCount(0);
+  await expect(page.getByTestId("today-running-order")).toHaveCount(0);
+
+  await expect(page.getByTestId("today-assistant")).toBeVisible();
+  await expect(page.getByTestId("today-running-order")).toBeVisible();
+});

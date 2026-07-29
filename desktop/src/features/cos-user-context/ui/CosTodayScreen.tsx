@@ -16,7 +16,10 @@ import {
   useCosFollowUpQuery,
 } from "@/features/cos-follow-up/hooks";
 import { useCosUserContextQuery } from "@/features/cos-user-context/hooks";
-import { hasCosWorkspaceModule } from "@/features/cos-user-context/lib/cosUserContext";
+import {
+  currentCosUserContext,
+  hasCosWorkspaceModule,
+} from "@/features/cos-user-context/lib/cosUserContext";
 import { useIdentityQuery } from "@/shared/api/hooks";
 import { cn } from "@/shared/lib/cn";
 import { Badge } from "@/shared/ui/badge";
@@ -71,7 +74,7 @@ export function CosTodayScreen() {
   const communityScope = cosFollowUpCommunityScope(activeCommunity);
   const contextQuery = useCosUserContextQuery(pubkey, communityScope);
   const actionsQuery = useCosFollowUpQuery(pubkey, communityScope);
-  const context = contextQuery.data;
+  const context = currentCosUserContext(contextQuery);
   const openActions = (actionsQuery.data ?? []).filter(
     (item) => item.state !== "confirmed",
   );
