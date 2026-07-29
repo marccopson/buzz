@@ -228,12 +228,14 @@ export function hasCosWorkspaceModule(
 export function currentCosUserContext({
   data,
   isError,
+  isFetching,
   isPending,
 }: {
   data: CosUserContext | null | undefined;
   isError: boolean;
+  isFetching: boolean;
   isPending: boolean;
 }): CosUserContext | null {
-  if (isError || isPending) return null;
+  if (isError || isFetching || isPending) return null;
   return data ?? null;
 }

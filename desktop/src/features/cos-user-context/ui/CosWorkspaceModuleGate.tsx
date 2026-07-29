@@ -27,7 +27,7 @@ export function CosWorkspaceModuleGate({
     cosFollowUpCommunityScope(activeCommunity),
   );
 
-  if (context.isPending) {
+  if (context.isFetching) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center bg-background text-sm text-muted-foreground">
         Checking your Contractor OS access…

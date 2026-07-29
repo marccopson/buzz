@@ -133,6 +133,7 @@ test("does not authorise cached context after a refresh failure", () => {
     currentCosUserContext({
       data: cached,
       isError: false,
+      isFetching: false,
       isPending: false,
     }),
     cached,
@@ -141,6 +142,7 @@ test("does not authorise cached context after a refresh failure", () => {
     currentCosUserContext({
       data: cached,
       isError: true,
+      isFetching: false,
       isPending: false,
     }),
     null,
@@ -149,7 +151,17 @@ test("does not authorise cached context after a refresh failure", () => {
     currentCosUserContext({
       data: cached,
       isError: false,
+      isFetching: false,
       isPending: true,
+    }),
+    null,
+  );
+  assert.equal(
+    currentCosUserContext({
+      data: cached,
+      isError: false,
+      isFetching: true,
+      isPending: false,
     }),
     null,
   );
