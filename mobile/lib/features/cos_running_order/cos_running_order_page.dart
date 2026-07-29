@@ -8,6 +8,7 @@ import '../../shared/theme/theme.dart';
 import '../../shared/widgets/filter_chip_bar.dart';
 import '../../shared/widgets/frosted_app_bar.dart';
 import '../../shared/widgets/frosted_scaffold.dart';
+import '../cos_user_context/cos_workspace_module_gate.dart';
 import 'cos_running_order.dart';
 import 'cos_running_order_provider.dart';
 
@@ -23,8 +24,19 @@ enum _RunningOrderFilter {
   queued,
 }
 
-class CosRunningOrderPage extends HookConsumerWidget {
+class CosRunningOrderPage extends StatelessWidget {
   const CosRunningOrderPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => const CosWorkspaceModuleGate(
+    title: 'COS Running Order',
+    requiredModules: ['running_order'],
+    child: _AuthorisedCosRunningOrderPage(),
+  );
+}
+
+class _AuthorisedCosRunningOrderPage extends HookConsumerWidget {
+  const _AuthorisedCosRunningOrderPage();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

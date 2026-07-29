@@ -4,11 +4,24 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../shared/theme/theme.dart';
 import '../cos_running_order/cos_running_order_page.dart';
+import '../cos_user_context/cos_workspace_module_gate.dart';
 import 'agent_health.dart';
 import 'agent_health_provider.dart';
 
 class ControlRoomPage extends ConsumerWidget {
   const ControlRoomPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) =>
+      const CosWorkspaceModuleGate(
+        title: 'Control Room',
+        requiredModules: ['agents', 'running_order'],
+        child: _AuthorisedControlRoomPage(),
+      );
+}
+
+class _AuthorisedControlRoomPage extends ConsumerWidget {
+  const _AuthorisedControlRoomPage();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

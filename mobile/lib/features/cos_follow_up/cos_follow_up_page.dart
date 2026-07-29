@@ -6,11 +6,24 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../shared/theme/theme.dart';
 import '../../shared/widgets/frosted_app_bar.dart';
 import '../../shared/widgets/frosted_scaffold.dart';
+import '../cos_user_context/cos_workspace_module_gate.dart';
 import 'cos_follow_up.dart';
 import 'cos_follow_up_provider.dart';
 
 class CosFollowUpPage extends ConsumerWidget {
   const CosFollowUpPage({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) =>
+      const CosWorkspaceModuleGate(
+        title: 'My Actions',
+        requiredModules: ['my_actions'],
+        child: _AuthorisedCosFollowUpPage(),
+      );
+}
+
+class _AuthorisedCosFollowUpPage extends ConsumerWidget {
+  const _AuthorisedCosFollowUpPage();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {

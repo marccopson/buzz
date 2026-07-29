@@ -2,11 +2,14 @@ import 'dart:convert';
 
 import 'package:buzz/features/control_room/agent_health_provider.dart';
 import 'package:buzz/features/control_room/control_room_page.dart';
+import 'package:buzz/features/cos_user_context/cos_user_context.dart';
+import 'package:buzz/features/cos_user_context/cos_user_context_provider.dart';
 import 'package:buzz/shared/relay/relay_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart' as http_testing;
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../helpers/widget_helpers.dart';
 
@@ -82,6 +85,14 @@ Map<String, dynamic> healthPayload({
 }
 
 void main() {
+  const authorisedContext = CosUserContext(
+    eventId: 'context',
+    channelId: 'channel',
+    assigneePubkey: 'user',
+    modules: ['today', 'my_actions', 'messages', 'agents', 'running_order'],
+    createdAt: 1,
+  );
+
   testWidgets('shows operational state and assurance gaps separately', (
     tester,
   ) async {
@@ -97,6 +108,9 @@ void main() {
     await tester.pumpWidget(
       WidgetHelpers.testable(
         overrides: [
+          cosUserContextProvider.overrideWithValue(
+            const AsyncData(authorisedContext),
+          ),
           relayConfigProvider.overrideWith(
             () =>
                 _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
@@ -129,6 +143,9 @@ void main() {
     await tester.pumpWidget(
       WidgetHelpers.testable(
         overrides: [
+          cosUserContextProvider.overrideWithValue(
+            const AsyncData(authorisedContext),
+          ),
           relayConfigProvider.overrideWith(
             () =>
                 _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
@@ -170,6 +187,9 @@ void main() {
     await tester.pumpWidget(
       WidgetHelpers.testable(
         overrides: [
+          cosUserContextProvider.overrideWithValue(
+            const AsyncData(authorisedContext),
+          ),
           relayConfigProvider.overrideWith(
             () =>
                 _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
@@ -211,6 +231,9 @@ void main() {
     await tester.pumpWidget(
       WidgetHelpers.testable(
         overrides: [
+          cosUserContextProvider.overrideWithValue(
+            const AsyncData(authorisedContext),
+          ),
           relayConfigProvider.overrideWith(
             () =>
                 _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
@@ -240,6 +263,9 @@ void main() {
     await tester.pumpWidget(
       WidgetHelpers.testable(
         overrides: [
+          cosUserContextProvider.overrideWithValue(
+            const AsyncData(authorisedContext),
+          ),
           relayConfigProvider.overrideWith(
             () =>
                 _TestRelayConfigNotifier('https://forge-do.tailfe35cd.ts.net'),
@@ -256,6 +282,31 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(requests, 2);
+  });
+
+  testWidgets('fails closed before fetching when role access is absent', (
+    tester,
+  ) async {
+    var requests = 0;
+    final client = http_testing.MockClient((_) async {
+      requests += 1;
+      return http.Response('{}', 200);
+    });
+    addTearDown(client.close);
+
+    await tester.pumpWidget(
+      WidgetHelpers.testable(
+        overrides: [
+          cosUserContextProvider.overrideWithValue(const AsyncData(null)),
+          agentHealthHttpClientProvider.overrideWithValue(client),
+        ],
+        child: const ControlRoomPage(),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Access not available'), findsOneWidget);
+    expect(requests, 0);
   });
 }
 
