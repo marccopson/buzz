@@ -59,7 +59,6 @@ export function useCosUserContextQuery(pubkey?: string, communityScope = "") {
         relayClient.fetchEvents({
           kinds: [39002],
           "#d": candidateChannelIds,
-          "#p": [normalizedPubkey],
           limit: candidateChannelIds.length,
         }),
       ]);

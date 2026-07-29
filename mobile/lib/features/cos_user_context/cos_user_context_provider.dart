@@ -44,10 +44,7 @@ final cosUserContextProvider = FutureProvider<CosUserContext?>((ref) async {
     session.fetchHistory(
       NostrFilter(
         kinds: const [39002],
-        tags: {
-          '#d': candidateChannelIds,
-          '#p': [pubkey],
-        },
+        tags: {'#d': candidateChannelIds},
         limit: candidateChannelIds.length,
       ),
     ),

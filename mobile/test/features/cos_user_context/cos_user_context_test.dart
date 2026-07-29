@@ -72,6 +72,7 @@ void main() {
     required String channelId,
     required List<List<String>> tags,
     String secretKey = relaySecret,
+    int createdAt = 1,
   }) {
     final signed = nostr.Event.from(
       kind: kind,
@@ -81,7 +82,7 @@ void main() {
         ...tags,
       ],
       secretKey: secretKey,
-      createdAt: 1,
+      createdAt: createdAt,
       verify: true,
     );
     return NostrEvent.fromJson(signed.toMap());
@@ -351,6 +352,44 @@ void main() {
       ),
       throwsFormatException,
     );
+  });
+
+  test('a newer membership snapshot revokes an older authorised identity', () {
+    final resolved = resolveAuthoritativeCosUserContextChannel(
+      candidateChannelIds: const ['mac'],
+      metadataEvents: [
+        channelState(
+          kind: 39000,
+          channelId: 'mac',
+          tags: const [
+            ['private'],
+          ],
+        ),
+      ],
+      membershipEvents: [
+        channelState(
+          kind: 39002,
+          channelId: 'mac',
+          createdAt: 1,
+          tags: [
+            ['p', bridge, '', 'owner'],
+            const ['p', assignee, '', 'member'],
+          ],
+        ),
+        channelState(
+          kind: 39002,
+          channelId: 'mac',
+          createdAt: 2,
+          tags: [
+            ['p', bridge, '', 'owner'],
+          ],
+        ),
+      ],
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+      trustedRelayPubkey: relay,
+    );
+    expect(resolved, isNull);
   });
 
   test('rejects channel authority not signed by the active relay', () {

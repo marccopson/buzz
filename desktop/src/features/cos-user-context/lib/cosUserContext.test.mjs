@@ -79,6 +79,7 @@ function channelMembership(
     ownerPubkey = bridge,
     extraPubkey,
     createdAt = 1,
+    includeAssignee = true,
   } = {},
 ) {
   return finalizeEvent(
@@ -88,7 +89,7 @@ function channelMembership(
       tags: [
         ["d", channelId],
         ["p", ownerPubkey, "", "owner"],
-        ["p", assigneePubkey, "", "member"],
+        ...(includeAssignee ? [["p", assigneePubkey, "", "member"]] : []),
         ...(extraPubkey ? [["p", extraPubkey, "", "member"]] : []),
       ],
       content: "",
@@ -250,6 +251,26 @@ test("fails closed when two channels claim the same active identity", () => {
         channel,
       ),
     /different channel/,
+  );
+});
+
+test("a newer membership snapshot revokes an older authorised identity", () => {
+  assert.equal(
+    resolveAuthoritativeCosUserContextChannel({
+      candidateChannelIds: [channel],
+      metadataEvents: [channelMetadata(channel)],
+      membershipEvents: [
+        channelMembership(channel, { createdAt: 1 }),
+        channelMembership(channel, {
+          createdAt: 2,
+          includeAssignee: false,
+        }),
+      ],
+      assigneePubkey: assignee,
+      trustedBridgePubkey: bridge,
+      trustedRelayPubkey: relay,
+    }),
+    null,
   );
 });
 
