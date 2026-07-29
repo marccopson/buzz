@@ -89,7 +89,7 @@ function AgentCard({ agent }: { agent: AgentHealthRecord }) {
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate text-xs capitalize">{name}</span>
-              <span className="flex items-center gap-1 text-[0.6875rem] font-medium">
+              <span className="flex items-center gap-1 text-2xs font-medium">
                 {dimension.state === "pass" ? (
                   <CheckCircle2
                     aria-hidden
