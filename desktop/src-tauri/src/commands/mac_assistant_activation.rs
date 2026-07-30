@@ -41,7 +41,6 @@ mod tests {
     use nostr::Keys;
     use uuid::Uuid;
 
-    use super::*;
     use buzz_sdk_pkg::mac_assistant_activation::{
         ActivationRequest, DesktopJakeContext, ASSISTANT_KEY, ASSISTANT_NAME, JAKE_SCOPE,
         JAKE_USER_KEY, JAKE_USER_NAME, JIRA_KEY, REQUEST_SCHEMA, WORKSPACE_ORIGIN,
