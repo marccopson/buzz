@@ -213,6 +213,7 @@ impl FromRequestParts<Arc<AppState>> for AuthenticatedUpload {
             tenant.community(),
             auth_event.pubkey.as_bytes(),
             auth_tag,
+            crate::api::relay_members::NipOaAdmission::Nip98,
         )
         .await
         .map_err(|_| MediaError::RelayMembershipRequired)?;
@@ -507,6 +508,7 @@ async fn authenticate_media_read(
         tenant.community(),
         auth_event.pubkey.as_bytes(),
         auth_tag,
+        crate::api::relay_members::NipOaAdmission::Nip98,
     )
     .await
     .map_err(|_| MediaError::RelayMembershipRequired)?;

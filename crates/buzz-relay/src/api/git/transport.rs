@@ -215,6 +215,7 @@ impl axum::extract::FromRequestParts<Arc<AppState>> for GitAuth {
             tenant.community(),
             pubkey.as_bytes(),
             auth_tag,
+            crate::api::relay_members::NipOaAdmission::Nip98,
         )
         .await
         .is_err()
