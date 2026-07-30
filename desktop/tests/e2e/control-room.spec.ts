@@ -2,6 +2,12 @@ import { expect, test } from "@playwright/test";
 
 import { installMockBridge } from "../helpers/bridge";
 
+const HEALTH_NOW = new Date("2026-07-29T06:00:20Z");
+
+test.beforeEach(async ({ page }) => {
+  await page.clock.setFixedTime(HEALTH_NOW);
+});
+
 const DIMENSIONS = Object.fromEntries(
   [
     "alive",
