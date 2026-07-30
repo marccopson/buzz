@@ -247,7 +247,7 @@ enum Cmd {
     MacAssistant(MacAssistantCmd),
 }
 
-/// Local-only MAC Assistant activation operations.
+/// MAC Assistant activation and private-channel enrolment operations.
 #[derive(Subcommand)]
 enum MacAssistantCmd {
     /// Verify a Desktop owner attestation against its brain-vps request
@@ -260,6 +260,29 @@ enum MacAssistantCmd {
         #[arg(long)]
         attestation: PathBuf,
         /// Verification time override for deterministic offline tests
+        #[arg(long, hide = true)]
+        now: Option<u64>,
+    },
+    /// Sign and publish one typed bridge-authored enrolment request
+    #[command(name = "request-publish")]
+    RequestPublish {
+        /// Enrolment request JSON file (public values only)
+        #[arg(long)]
+        input: PathBuf,
+        /// Signing time override for deterministic tests
+        #[arg(long, hide = true)]
+        now: Option<u64>,
+    },
+    /// Collect and verify one user's signed private-channel approval
+    #[command(name = "attestation-collect")]
+    AttestationCollect {
+        #[arg(long)]
+        request_id: String,
+        #[arg(long)]
+        identity: String,
+        #[arg(long)]
+        channel: String,
+        /// Verification time override for deterministic tests
         #[arg(long, hide = true)]
         now: Option<u64>,
     },
@@ -2010,7 +2033,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Mem(sub) => commands::mem::dispatch(sub, &client).await,
         Cmd::Moderation(sub) => commands::moderation::dispatch(sub, &client, &cli.format).await,
         Cmd::FollowUps(sub) => commands::follow_ups::dispatch(sub, &client, &cli.format).await,
-        Cmd::MacAssistant(_) => unreachable!("handled above"),
+        Cmd::MacAssistant(sub) => commands::mac_assistant::dispatch(sub, &client).await,
         Cmd::Pack(_) => unreachable!("handled above"),
     }
 }
@@ -2198,7 +2221,14 @@ mod tests {
                 "receipt"
             ]
         );
-        assert_eq!(names(&cmd, "mac-assistant"), vec!["verify-activation"]);
+        assert_eq!(
+            names(&cmd, "mac-assistant"),
+            vec![
+                "attestation-collect",
+                "request-publish",
+                "verify-activation"
+            ]
+        );
         assert_eq!(
             names(&cmd, "social"),
             vec![
@@ -2271,7 +2301,7 @@ mod tests {
             ("feed", 1),
             ("follow-ups", 9),
             ("issues", 4),
-            ("mac-assistant", 1),
+            ("mac-assistant", 3),
             ("media", 1),
             ("messages", 8),
             ("pack", 2),

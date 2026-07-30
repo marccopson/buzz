@@ -6,9 +6,48 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use nostr::JsonUtil;
 use tauri::State;
 
 use crate::app_state::AppState;
+
+#[tauri::command]
+pub fn attest_mac_assistant_enrolment(
+    request_event_json: String,
+    bridge_pubkey: String,
+    projected_identity_pubkey: String,
+    channel_id: String,
+    user_id: String,
+    user_name: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    if request_event_json.len() > 128 * 1024 {
+        return Err("MAC Assistant enrolment request is too large".into());
+    }
+    let request_event = nostr::Event::from_json(request_event_json)
+        .map_err(|error| format!("Invalid MAC Assistant enrolment request: {error}"))?;
+    let keys = state.signing_keys()?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock precedes the Unix epoch".to_string())?
+        .as_secs();
+    let context = buzz_sdk_pkg::mac_assistant_enrolment::DesktopEnrolmentContext {
+        identity_pubkey: keys.public_key().to_hex(),
+        projected_identity_pubkey,
+        channel_id,
+        user_id,
+        user_name,
+    };
+    let event = buzz_sdk_pkg::mac_assistant_enrolment::attest_request_event(
+        &request_event,
+        &bridge_pubkey,
+        &keys,
+        &context,
+        now,
+    )
+    .map_err(|error| format!("MAC Assistant enrolment rejected: {error}"))?;
+    Ok(event.as_json())
+}
 
 #[tauri::command]
 pub fn attest_mac_assistant_activation(

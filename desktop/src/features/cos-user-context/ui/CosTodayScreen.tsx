@@ -16,15 +16,18 @@ import {
   useCosFollowUpQuery,
 } from "@/features/cos-follow-up/hooks";
 import { useCosUserContextQuery } from "@/features/cos-user-context/hooks";
+import { useMacAssistantEnrolmentRequest } from "@/features/cos-user-context/hooksMacAssistantEnrolment";
 import {
   currentCosUserContext,
   hasCosWorkspaceModule,
 } from "@/features/cos-user-context/lib/cosUserContext";
 import { useIdentityQuery } from "@/shared/api/hooks";
+import { getCosFollowUpBridgePubkey } from "@/shared/api/tauriIdentityArchive";
 import { cn } from "@/shared/lib/cn";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { JakeAssistantActivationDialog } from "./JakeAssistantActivationDialog";
+import { MacAssistantEnrolmentDialog } from "./MacAssistantEnrolmentDialog";
 
 function TodayCard({
   children,
@@ -70,6 +73,9 @@ function TodayCard({
 export function CosTodayScreen() {
   const [assistantActivationOpen, setAssistantActivationOpen] =
     React.useState(false);
+  const [assistantEnrolmentOpen, setAssistantEnrolmentOpen] =
+    React.useState(false);
+  const [bridgePubkey, setBridgePubkey] = React.useState<string | null>(null);
   const identity = useIdentityQuery();
   const { activeCommunity } = useCommunities();
   const navigation = useAppNavigation();
@@ -77,6 +83,16 @@ export function CosTodayScreen() {
   const communityScope = cosFollowUpCommunityScope(activeCommunity);
   const contextQuery = useCosUserContextQuery(pubkey, communityScope);
   const context = currentCosUserContext(contextQuery);
+  React.useEffect(() => {
+    void getCosFollowUpBridgePubkey()
+      .then(setBridgePubkey)
+      .catch(() => setBridgePubkey(null));
+  }, []);
+  const enrolmentQuery = useMacAssistantEnrolmentRequest(
+    context,
+    pubkey.toLowerCase(),
+    bridgePubkey,
+  );
   const canUseMyActions = hasCosWorkspaceModule(context, "my_actions");
   const actionsQuery = useCosFollowUpQuery(
     canUseMyActions ? pubkey : undefined,
@@ -203,6 +219,19 @@ export function CosTodayScreen() {
                 <Badge className="mt-3" variant="outline">
                   Centrally provided
                 </Badge>
+                {enrolmentQuery.data ? (
+                  <Button
+                    className="mt-3 ml-2"
+                    data-testid="open-mac-assistant-enrolment"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setAssistantEnrolmentOpen(true);
+                    }}
+                    size="sm"
+                  >
+                    Enable my MAC Assistant
+                  </Button>
+                ) : null}
                 {canAuthoriseJakeAssistant ? (
                   <Button
                     className="mt-3 ml-2"
@@ -237,6 +266,18 @@ export function CosTodayScreen() {
           context={context}
           onOpenChange={setAssistantActivationOpen}
           open={assistantActivationOpen}
+        />
+      ) : null}
+      {context && bridgePubkey && enrolmentQuery.data ? (
+        <MacAssistantEnrolmentDialog
+          bridgePubkey={bridgePubkey}
+          context={context}
+          identityPubkey={pubkey.toLowerCase()}
+          onApproved={() => void enrolmentQuery.refetch()}
+          onOpenChange={setAssistantEnrolmentOpen}
+          open={assistantEnrolmentOpen}
+          request={enrolmentQuery.data.request}
+          requestEvent={enrolmentQuery.data.event}
         />
       ) : null}
     </div>

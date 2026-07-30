@@ -20,3 +20,19 @@ export async function attestMacAssistantActivation(
     ...context,
   });
 }
+
+export async function attestMacAssistantEnrolment(
+  requestEventJson: string,
+  context: {
+    bridgePubkey: string;
+    projectedIdentityPubkey: string;
+    channelId: string;
+    userId: string;
+    userName: string;
+  },
+): Promise<string> {
+  return tauriInvoke<string>("attest_mac_assistant_enrolment", {
+    requestEventJson,
+    ...context,
+  });
+}
