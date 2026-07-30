@@ -1762,10 +1762,20 @@ async fn tokio_main() -> Result<()> {
                 let args = config.agent_args.clone();
                 let env = config.persona_env_vars.clone();
                 let has_codex = config.has_generated_codex_config;
+                let file_backed_identity = config.private_key_file_backed;
                 let observer = observer.clone();
                 let guard = RespawnGuard::new(idx, respawn_tx.clone());
                 respawn_tasks.spawn(async move {
-                    let result = spawn_and_init(&cmd, &args, &env, has_codex, idx, observer).await;
+                    let result = spawn_and_init(
+                        &cmd,
+                        &args,
+                        &env,
+                        has_codex,
+                        file_backed_identity,
+                        idx,
+                        observer,
+                    )
+                    .await;
                     guard.send(result);
                 });
             }
@@ -3488,12 +3498,22 @@ fn recover_panicked_agent(
     let args = config.agent_args.clone();
     let env = config.persona_env_vars.clone();
     let has_codex = config.has_generated_codex_config;
+    let file_backed_identity = config.private_key_file_backed;
     let guard = RespawnGuard::new(i, respawn_tx.clone());
     respawn_tasks.spawn(async move {
         if !delay.is_zero() {
             tokio::time::sleep(delay).await;
         }
-        let result = spawn_and_init(&cmd, &args, &env, has_codex, i, observer).await;
+        let result = spawn_and_init(
+            &cmd,
+            &args,
+            &env,
+            has_codex,
+            file_backed_identity,
+            i,
+            observer,
+        )
+        .await;
         guard.send(result);
     });
 }
@@ -3666,6 +3686,7 @@ fn spawn_respawn_task(
     let args = config.agent_args.clone();
     let env = config.persona_env_vars.clone();
     let has_codex = config.has_generated_codex_config;
+    let file_backed_identity = config.private_key_file_backed;
     let guard = RespawnGuard::new(index, respawn_tx.clone());
     respawn_tasks.spawn(async move {
         // Shutdown old agent (reap child, prevent zombie).
@@ -3677,7 +3698,16 @@ fn spawn_respawn_task(
             tokio::time::sleep(delay).await;
         }
 
-        let result = spawn_and_init(&cmd, &args, &env, has_codex, index, observer).await;
+        let result = spawn_and_init(
+            &cmd,
+            &args,
+            &env,
+            has_codex,
+            file_backed_identity,
+            index,
+            observer,
+        )
+        .await;
         guard.send(result);
     });
 
@@ -3721,6 +3751,7 @@ struct PoolStartup {
     args: Vec<String>,
     extra_env: Vec<(String, String)>,
     has_generated_codex_config: bool,
+    file_backed_identity: bool,
     model: Option<String>,
     observer: Option<observer::ObserverHandle>,
 }
@@ -3733,6 +3764,7 @@ impl PoolStartup {
             args: config.agent_args.clone(),
             extra_env: config.persona_env_vars.clone(),
             has_generated_codex_config: config.has_generated_codex_config,
+            file_backed_identity: config.private_key_file_backed,
             model: config.model.clone(),
             observer,
         }
@@ -3752,6 +3784,7 @@ async fn initialize_agent_pool(
             &startup.args,
             &startup.extra_env,
             startup.has_generated_codex_config,
+            startup.file_backed_identity,
         )
         .await;
         match spawn_result {
@@ -3851,12 +3884,19 @@ async fn spawn_and_init(
     args: &[String],
     extra_env: &[(String, String)],
     has_generated_codex_config: bool,
+    file_backed_identity: bool,
     agent_index: usize,
     observer: Option<observer::ObserverHandle>,
 ) -> Result<(AcpClient, u32, String)> {
-    let mut acp = AcpClient::spawn(command, args, extra_env, has_generated_codex_config)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to spawn agent: {e}"))?;
+    let mut acp = AcpClient::spawn(
+        command,
+        args,
+        extra_env,
+        has_generated_codex_config,
+        file_backed_identity,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("failed to spawn agent: {e}"))?;
     acp.set_observer(observer, agent_index);
 
     match acp.initialize().await {
@@ -3885,7 +3925,7 @@ async fn spawn_and_init(
 
 async fn spawn_auth_client(agent: &AuthAgentArgs) -> Result<AcpClient, acp::AcpError> {
     let agent_args = config::normalize_agent_args(&agent.agent_command, agent.agent_args.clone());
-    AcpClient::spawn(&agent.agent_command, &agent_args, &[], false).await
+    AcpClient::spawn(&agent.agent_command, &agent_args, &[], false, false).await
 }
 
 fn extract_auth_methods(init_result: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -4015,7 +4055,7 @@ async fn run_models(args: ModelsArgs) -> Result<()> {
     // Spawn outside the timeout so we always own the child for cleanup.
     // `models` subcommand doesn't use persona packs — no extra env, no codex config.
     let mut client =
-        match AcpClient::spawn(&args.agent.agent_command, &agent_args, &[], false).await {
+        match AcpClient::spawn(&args.agent.agent_command, &agent_args, &[], false, false).await {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("error: failed to spawn agent: {e}");
@@ -4152,23 +4192,23 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
         command: config.mcp_command.clone(),
         args: vec![],
         env: {
-            let mut env = vec![
-                EnvVar {
-                    name: "BUZZ_RELAY_URL".into(),
-                    value: config.relay_url.clone(),
-                },
-                EnvVar {
+            let mut env = vec![EnvVar {
+                name: "BUZZ_RELAY_URL".into(),
+                value: config.relay_url.clone(),
+            }];
+            // A file-backed identity is harness-only. In particular, never
+            // reconstruct and place it in an MCP descendant environment.
+            if !config.private_key_file_backed {
+                env.push(EnvVar {
                     name: "BUZZ_PRIVATE_KEY".into(),
                     // bech32 encoding of a valid secret key is infallible.
-                    // Panic here is correct: injecting a bogus secret would cause
-                    // delayed, hard-to-diagnose agent failures downstream.
                     value: config
                         .keys
                         .secret_key()
                         .to_bech32()
                         .expect("secret key bech32 encoding should never fail"),
-                },
-            ];
+                });
+            }
             // Forward BUZZ_AUTH_TAG (NIP-OA owner attestation credential)
             // so the MCP server can attach it to every signed event.
             if let Ok(auth_tag) = std::env::var("BUZZ_AUTH_TAG") {
@@ -4959,6 +4999,7 @@ mod build_mcp_servers_tests {
     fn test_config() -> Config {
         Config {
             keys: nostr::Keys::generate(),
+            private_key_file_backed: false,
             relay_url: "ws://localhost:3000".into(),
             agent_command: "goose".into(),
             agent_args: vec!["acp".into()],
@@ -5003,6 +5044,7 @@ mod build_mcp_servers_tests {
 
     #[test]
     fn session_new_mcp_server_has_required_fields() {
+        let _guard = ENV_LOCK.lock().unwrap();
         let config = test_config();
         let servers = build_mcp_servers(&config);
         assert_eq!(servers.len(), 1);
@@ -5017,6 +5059,22 @@ mod build_mcp_servers_tests {
         assert!(
             names.contains(&"BUZZ_PRIVATE_KEY"),
             "missing BUZZ_PRIVATE_KEY; got {names:?}"
+        );
+    }
+
+    #[test]
+    fn file_backed_identity_is_not_reconstructed_for_mcp_descendants() {
+        let mut config = test_config();
+        config.private_key_file_backed = true;
+        let servers = build_mcp_servers(&config);
+
+        assert_eq!(servers.len(), 1);
+        assert!(
+            servers[0]
+                .env
+                .iter()
+                .all(|entry| entry.name != "BUZZ_PRIVATE_KEY"),
+            "file-backed identity must remain harness-only"
         );
     }
 
@@ -5177,6 +5235,7 @@ mod error_outcome_emission_tests {
     fn test_config() -> Config {
         Config {
             keys: nostr::Keys::generate(),
+            private_key_file_backed: false,
             relay_url: "ws://localhost:3000".into(),
             // `true` exits cleanly, so the async respawn fails fast and
             // harmlessly off the JoinSet — irrelevant to the synchronous
@@ -5244,7 +5303,7 @@ mod error_outcome_emission_tests {
     async fn dummy_agent(index: usize) -> OwnedAgent {
         OwnedAgent {
             index,
-            acp: AcpClient::spawn("cat", &[], &[], false)
+            acp: AcpClient::spawn("cat", &[], &[], false, false)
                 .await
                 .expect("spawn cat as inert agent"),
             state: Default::default(),
