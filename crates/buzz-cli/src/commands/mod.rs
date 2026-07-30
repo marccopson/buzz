@@ -6,6 +6,7 @@ pub mod emoji;
 pub mod feed;
 pub mod follow_ups;
 pub mod issues;
+pub mod mac_assistant;
 pub mod mem;
 pub mod messages;
 pub mod moderation;

@@ -7,7 +7,7 @@ import {
   RefreshCw,
   ShieldCheck,
 } from "lucide-react";
-import type * as React from "react";
+import * as React from "react";
 
 import { useAppNavigation } from "@/app/navigation/useAppNavigation";
 import { useCommunities } from "@/features/communities/useCommunities";
@@ -24,6 +24,7 @@ import { useIdentityQuery } from "@/shared/api/hooks";
 import { cn } from "@/shared/lib/cn";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
+import { JakeAssistantActivationDialog } from "./JakeAssistantActivationDialog";
 
 function TodayCard({
   children,
@@ -67,6 +68,8 @@ function TodayCard({
 }
 
 export function CosTodayScreen() {
+  const [assistantActivationOpen, setAssistantActivationOpen] =
+    React.useState(false);
   const identity = useIdentityQuery();
   const { activeCommunity } = useCommunities();
   const navigation = useAppNavigation();
@@ -93,6 +96,10 @@ export function CosTodayScreen() {
     void contextQuery.refetch();
     if (canUseMyActions) void actionsQuery.refetch();
   };
+  const canAuthoriseJakeAssistant =
+    context?.user.name === "Jake Wherton" &&
+    context.assigneePubkey === pubkey.toLowerCase() &&
+    context.assistant?.key === "mac-assistant";
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -196,6 +203,20 @@ export function CosTodayScreen() {
                 <Badge className="mt-3" variant="outline">
                   Centrally provided
                 </Badge>
+                {canAuthoriseJakeAssistant ? (
+                  <Button
+                    className="mt-3 ml-2"
+                    data-testid="open-jake-assistant-activation"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setAssistantActivationOpen(true);
+                    }}
+                    size="sm"
+                    variant="outline"
+                  >
+                    Authorise on brain-vps
+                  </Button>
+                ) : null}
               </TodayCard>
             ) : null}
 
@@ -211,6 +232,13 @@ export function CosTodayScreen() {
           </div>
         </div>
       </main>
+      {canAuthoriseJakeAssistant && context ? (
+        <JakeAssistantActivationDialog
+          context={context}
+          onOpenChange={setAssistantActivationOpen}
+          open={assistantActivationOpen}
+        />
+      ) : null}
     </div>
   );
 }

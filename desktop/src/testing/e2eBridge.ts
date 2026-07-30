@@ -1,4 +1,6 @@
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
+import { sha256 } from "@noble/hashes/sha2.js";
+import { schnorr } from "@noble/curves/secp256k1.js";
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { decode } from "nostr-tools/nip19";
 import { finalizeEvent, getPublicKey } from "nostr-tools/pure";
@@ -308,7 +310,7 @@ type E2eConfig = {
      * explicitly disables the feature. */
     cosFollowUpBridgePubkey?: string | null;
     /** Trusted Workspace context fixture. Undefined defaults to admin. */
-    cosUserContext?: "admin" | "staff" | null;
+    cosUserContext?: "admin" | "staff" | "jake" | null;
     /** Delay returning the trusted Workspace context fixture. */
     cosUserContextDelayMs?: number;
     /** Delay registration of trusted kind-5 live subscriptions so the COS
@@ -927,6 +929,7 @@ function createMockCosUserContextEvent(
   if (authorityPubkey.toLowerCase() !== MOCK_COS_BRIDGE_PUBKEY) return null;
 
   const isAdmin = access === undefined || access === "admin";
+  const isJake = access === "jake";
   const modules = [
     "today",
     "my_actions",
@@ -943,7 +946,11 @@ function createMockCosUserContextEvent(
         tenant_slug: "mac-surfacing",
         user: {
           id: isAdmin ? 1 : 2,
-          name: isAdmin ? "MAC Workspace Admin" : "MAC Staff Member",
+          name: isJake
+            ? "Jake Wherton"
+            : isAdmin
+              ? "MAC Workspace Admin"
+              : "MAC Staff Member",
           role: isAdmin ? "contractor_admin" : "staff",
           role_label: isAdmin ? "Leadership" : "Staff",
         },
@@ -2463,11 +2470,21 @@ function getMockChannel(channelId: string): MockChannel {
 }
 
 function getMockMemberPubkey(config: E2eConfig | undefined): string {
-  return getActiveIdentity(config)?.pubkey ?? getMockIdentity().pubkey;
+  return (
+    getActiveIdentity(config)?.pubkey ??
+    (config?.mock?.cosUserContext === "jake"
+      ? DEFAULT_REAL_IDENTITY.pubkey
+      : getMockIdentity().pubkey)
+  );
 }
 
 function getMockMemberDisplayName(config: E2eConfig | undefined): string {
-  return getActiveIdentity(config)?.username ?? getMockIdentity().displayName;
+  return (
+    getActiveIdentity(config)?.username ??
+    (config?.mock?.cosUserContext === "jake"
+      ? "Jake Wherton"
+      : getMockIdentity().displayName)
+  );
 }
 
 function createCurrentMember(
@@ -9733,6 +9750,89 @@ export function maybeInstallE2eTauriMocks() {
     window.__BUZZ_E2E_COMMAND_LOG__?.push({ command, payload });
 
     switch (command) {
+      case "attest_mac_assistant_activation": {
+        const signingIdentity =
+          identity ??
+          (activeConfig?.mock?.cosUserContext === "jake"
+            ? DEFAULT_REAL_IDENTITY
+            : undefined);
+        if (!signingIdentity)
+          throw new Error("A signable Desktop identity is required.");
+        const input = payload as {
+          assistantKey: string;
+          channelId: string;
+          projectedIdentityPubkey: string;
+          requestJson: string;
+          userName: string;
+        };
+        if (
+          input.assistantKey !== "mac-assistant" ||
+          input.userName !== "Jake Wherton" ||
+          input.projectedIdentityPubkey !== signingIdentity.pubkey ||
+          input.channelId !== COS_FOLLOW_UP_CHANNEL_ID
+        ) {
+          throw new Error(
+            "Signed-in Desktop identity does not match the authoritative Jake context.",
+          );
+        }
+        const request = JSON.parse(input.requestJson) as Record<
+          string,
+          unknown
+        >;
+        if (
+          request.scope !== "jake-only" ||
+          request.user_key !== "jake-wherton" ||
+          request.user_name !== "Jake Wherton" ||
+          request.identity_pubkey !== signingIdentity.pubkey ||
+          request.channel_id !== COS_FOLLOW_UP_CHANNEL_ID
+        ) {
+          throw new Error(
+            "Activation request is outside the Jake-only boundary.",
+          );
+        }
+        const attestedAt = Math.floor(Date.now() / 1000);
+        const conditions = `created_at<${String(request.expires_at)}`;
+        const preimage = new TextEncoder().encode(
+          `nostr:agent-auth:${String(request.assistant_pubkey)}:${conditions}`,
+        );
+        const nipOaSignature = bytesToHex(
+          schnorr.sign(
+            sha256(preimage),
+            hexToBytes(signingIdentity.privateKey),
+          ),
+        );
+        const attestation = JSON.stringify({
+          schema: "mac-workspace/mac-assistant-attestation/v1",
+          event: await signWithIdentity(signingIdentity, {
+            kind: 27212,
+            content: JSON.stringify({
+              schema: "mac-workspace/mac-assistant-owner-attestation/v1",
+              request,
+              attested_at: attestedAt,
+              nip_oa_auth_tag: [
+                "auth",
+                signingIdentity.pubkey,
+                conditions,
+                nipOaSignature,
+              ],
+            }),
+            tags: [
+              ["d", String(request.request_id)],
+              ["h", String(request.channel_id)],
+              ["p", String(request.assistant_pubkey)],
+              ["challenge", String(request.challenge)],
+              ["expiration", String(request.expires_at)],
+            ],
+            createdAt: attestedAt,
+          }),
+        });
+        (
+          window as Window & {
+            __BUZZ_E2E_LAST_MAC_ASSISTANT_ATTESTATION__?: string;
+          }
+        ).__BUZZ_E2E_LAST_MAC_ASSISTANT_ATTESTATION__ = attestation;
+        return attestation;
+      }
       case "get_builderlab_auth":
         return activeConfig?.mock?.builderlabAuth ?? null;
       case "start_builderlab_login": {
@@ -9821,10 +9921,15 @@ export function maybeInstallE2eTauriMocks() {
         const isLocked =
           !mockIdentityLockedCleared &&
           activeConfig?.mock?.identityLocked === true;
-        if (identity) {
+        const currentIdentity =
+          identity ??
+          (activeConfig?.mock?.cosUserContext === "jake"
+            ? DEFAULT_REAL_IDENTITY
+            : undefined);
+        if (currentIdentity) {
           return {
-            pubkey: identity.pubkey,
-            display_name: identity.username,
+            pubkey: currentIdentity.pubkey,
+            display_name: currentIdentity.username,
             lost: false,
             locked: false,
           };

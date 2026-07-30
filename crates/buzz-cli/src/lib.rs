@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use client::BuzzClient;
 use error::CliError;
 use nostr::Keys;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 /// Run the Buzz CLI from raw arguments (including `argv[0]`).
@@ -71,7 +72,9 @@ Configuration (flags override env vars):
   BUZZ_PRIVATE_KEY   Nostr private key (hex or nsec)  [required]
   BUZZ_AUTH_TAG      NIP-OA auth tag JSON  [optional]
 
-The 'pack' subcommand runs locally and does not require a relay connection.
+The 'pack' and 'mac-assistant verify-activation' subcommands run locally and do
+not require a relay connection. MAC Assistant verification rejects private-key
+and auth-tag inputs.
 
 Exit codes: 0=ok  1=bad input  2=relay/network error  3=auth error  4=other  5=write conflict
 Errors are JSON on stderr: {\"error\": \"<category>\", \"message\": \"<detail>\"}"
@@ -239,6 +242,27 @@ enum Cmd {
     /// COS meeting follow-up bridge and user actions
     #[command(subcommand)]
     FollowUps(FollowUpsCmd),
+    /// Verify Jake-only MAC Assistant activation bundles locally
+    #[command(subcommand)]
+    MacAssistant(MacAssistantCmd),
+}
+
+/// Local-only MAC Assistant activation operations.
+#[derive(Subcommand)]
+enum MacAssistantCmd {
+    /// Verify a Desktop owner attestation against its brain-vps request
+    #[command(name = "verify-activation")]
+    VerifyActivation {
+        /// Prepared activation request JSON file
+        #[arg(long)]
+        request: PathBuf,
+        /// Desktop-exported attestation JSON file
+        #[arg(long)]
+        attestation: PathBuf,
+        /// Verification time override for deterministic offline tests
+        #[arg(long, hide = true)]
+        now: Option<u64>,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -1908,6 +1932,22 @@ pub enum ModerationCmd {
 async fn run(cli: Cli) -> Result<(), CliError> {
     let relay_url = client::normalize_relay_url(&cli.relay);
 
+    // MAC Assistant verification is local-only and never reads CLI identity
+    // credentials or connects to a relay.
+    if let Cmd::MacAssistant(MacAssistantCmd::VerifyActivation {
+        request,
+        attestation,
+        now,
+    }) = &cli.command
+    {
+        if cli.private_key.is_some() || cli.auth_tag.is_some() {
+            return Err(CliError::Usage(
+                "MAC Assistant verification does not accept private keys or auth tags".into(),
+            ));
+        }
+        return commands::mac_assistant::cmd_verify_activation(request, attestation, *now);
+    }
+
     // Contract introspection is local-only and must not require relay credentials.
     if matches!(&cli.command, Cmd::FollowUps(FollowUpsCmd::ContractInfo)) {
         commands::follow_ups::print_contract_info();
@@ -1970,6 +2010,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Mem(sub) => commands::mem::dispatch(sub, &client).await,
         Cmd::Moderation(sub) => commands::moderation::dispatch(sub, &client, &cli.format).await,
         Cmd::FollowUps(sub) => commands::follow_ups::dispatch(sub, &client, &cli.format).await,
+        Cmd::MacAssistant(_) => unreachable!("handled above"),
         Cmd::Pack(_) => unreachable!("handled above"),
     }
 }
@@ -1993,6 +2034,26 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn mac_assistant_verifier_rejects_identity_credentials() {
+        let cli = Cli::try_parse_from([
+            "buzz",
+            "--private-key",
+            "owner-private-material-is-forbidden",
+            "mac-assistant",
+            "verify-activation",
+            "--request",
+            "/not/read/request.json",
+            "--attestation",
+            "/not/read/attestation.json",
+        ])
+        .unwrap();
+        let error = run(cli).await.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not accept private keys or auth tags"));
+    }
+
     #[test]
     fn command_inventory_is_stable() {
         let expected_groups: Vec<&str> = vec![
@@ -2004,6 +2065,7 @@ mod tests {
             "feed",
             "follow-ups",
             "issues",
+            "mac-assistant",
             "media",
             "mem",
             "messages",
@@ -2129,12 +2191,14 @@ mod tests {
                 "channel-verify",
                 "command",
                 "commands",
+                "context-upsert",
                 "contract-info",
                 "item-remove",
                 "item-upsert",
                 "receipt"
             ]
         );
+        assert_eq!(names(&cmd, "mac-assistant"), vec!["verify-activation"]);
         assert_eq!(
             names(&cmd, "social"),
             vec![
@@ -2205,8 +2269,9 @@ mod tests {
             ("dms", 4),
             ("emoji", 5),
             ("feed", 1),
-            ("follow-ups", 8),
+            ("follow-ups", 9),
             ("issues", 4),
+            ("mac-assistant", 1),
             ("media", 1),
             ("messages", 8),
             ("pack", 2),

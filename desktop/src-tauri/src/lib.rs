@@ -723,6 +723,7 @@ pub fn run() {
             delete_custom_harness,
             connect_acp_runtime,
             discover_managed_agent_prereqs,
+            attest_mac_assistant_activation,
             sign_event,
             sign_nostr_identity_binding,
             sign_out,
