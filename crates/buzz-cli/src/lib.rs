@@ -286,6 +286,16 @@ enum MacAssistantCmd {
         #[arg(long, hide = true)]
         now: Option<u64>,
     },
+    /// Sign one offline bridge recovery request without contacting the relay
+    #[command(name = "bridge-authorisation-issue")]
+    BridgeAuthorisationIssue {
+        /// Public bridge recovery request JSON file
+        #[arg(long)]
+        input: PathBuf,
+        /// Signing time override for deterministic tests
+        #[arg(long, hide = true)]
+        now: Option<u64>,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]

@@ -7,6 +7,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use nostr::JsonUtil;
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -129,6 +130,25 @@ async fn request_publish(
     Ok(())
 }
 
+fn bridge_authorisation_issue(
+    client: &BuzzClient,
+    input: &Path,
+    now: Option<u64>,
+) -> Result<(), CliError> {
+    let raw = read_bounded(input, MAX_REQUEST_BYTES, "bridge authorisation request")?;
+    let request = serde_json::from_str(&raw).map_err(|error| {
+        CliError::Usage(format!("invalid bridge authorisation request: {error}"))
+    })?;
+    let event = buzz_sdk::mac_assistant_bridge_authorisation::build_request_event(
+        &request,
+        client.keys(),
+        unix_now(now)?,
+    )
+    .map_err(|error| CliError::Usage(error.to_string()))?;
+    println!("{}", event.as_json());
+    Ok(())
+}
+
 async fn attestation_collect(
     client: &BuzzClient,
     request_id: &str,
@@ -214,6 +234,9 @@ pub async fn dispatch(command: MacAssistantCmd, client: &BuzzClient) -> Result<(
             channel,
             now,
         } => attestation_collect(client, &request_id, &identity, &channel, now).await,
+        MacAssistantCmd::BridgeAuthorisationIssue { input, now } => {
+            bridge_authorisation_issue(client, &input, now)
+        }
         MacAssistantCmd::VerifyActivation { .. } => {
             unreachable!("offline activation verification is handled before authentication")
         }

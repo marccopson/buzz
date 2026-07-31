@@ -4,7 +4,7 @@
 //! owner then reviews it in Desktop and produces only a NIP-OA attestation;
 //! private keys never leave Desktop and no arbitrary agent key is accepted.
 
-use nostr::{Event, JsonUtil, Keys, PublicKey};
+use nostr::{Event, EventBuilder, JsonUtil, Keys, Kind, PublicKey, Tag, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -110,6 +110,38 @@ pub fn validate_request(request: &BridgeAuthorisationRequest, now: u64) -> Resul
         ));
     }
     Ok(())
+}
+
+/// Build the offline request event with the bridge identity, without contacting
+/// the relay. This permits recovery when the bridge's previous credential has
+/// expired or is unavailable.
+pub fn build_request_event(
+    request: &BridgeAuthorisationRequest,
+    bridge_keys: &Keys,
+    now: u64,
+) -> Result<Event, SdkError> {
+    validate_request(request, now)?;
+    if bridge_keys.public_key().to_hex() != request.bridge_pubkey {
+        return Err(invalid(
+            "bridge key does not match the requested bridge identity",
+        ));
+    }
+    let tags = [
+        vec!["d", request.request_id.as_str()],
+        vec!["challenge", request.challenge.as_str()],
+        vec!["expiration", &request.expires_at.to_string()],
+    ]
+    .into_iter()
+    .map(|tag| Tag::parse(tag).map_err(|error| invalid(format!("invalid request tag: {error}"))))
+    .collect::<Result<Vec<_>, _>>()?;
+    EventBuilder::new(
+        Kind::Custom(REQUEST_KIND),
+        serde_json::to_string(request).map_err(|error| invalid(error.to_string()))?,
+    )
+    .tags(tags)
+    .custom_created_at(Timestamp::from(request.issued_at))
+    .sign_with_keys(bridge_keys)
+    .map_err(|error| invalid(format!("request signing failed: {error}")))
 }
 
 /// Parse a request which was signed offline by the bridge key itself.
