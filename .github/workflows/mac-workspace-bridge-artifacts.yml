@@ -1,0 +1,111 @@
+name: MAC Workspace Bridge Artefacts
+
+# The MAC Workspace fork deliberately has no signing credentials. This manual
+# workflow produces short-lived, unsigned artefacts from its default branch:
+# a macOS owner client for the one-time bridge attestation, and the paired
+# Linux binaries installed through the reviewed-release binder on brain-vps.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    name: Verify MAC source
+    runs-on: ubuntu-latest
+    outputs:
+      revision: ${{ steps.revision.outputs.value }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - name: Require the MAC fork default branch
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+        run: |
+          test "$REPOSITORY" = "marccopson/buzz"
+          test "$REF" = "refs/heads/main"
+      - id: revision
+        run: echo "value=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  linux-bridge:
+    name: Build Linux bridge binaries
+    needs: source
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.source.outputs.revision }}
+          persist-credentials: false
+      - uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          shared-key: mac-workspace-bridge-linux
+      - name: Build paired reviewed-release binaries
+        run: cargo build --release -p buzz-cli -p buzz-acp
+      - name: Stage provenance and checksums
+        env:
+          REVISION: ${{ needs.source.outputs.revision }}
+        run: |
+          set -euo pipefail
+          mkdir stage
+          install -m 0755 target/release/buzz stage/mac-workspace-buzz
+          install -m 0755 target/release/buzz-acp stage/mac-workspace-buzz-acp
+          printf '%s\n' "$REVISION" > stage/source-revision.txt
+          (cd stage && sha256sum mac-workspace-buzz mac-workspace-buzz-acp source-revision.txt > SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mac-workspace-bridge-linux-${{ needs.source.outputs.revision }}
+          path: stage
+          if-no-files-found: error
+          retention-days: 7
+
+  macos-owner:
+    name: Build macOS owner client
+    needs: source
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.source.outputs.revision }}
+          persist-credentials: false
+      - uses: cashapp/activate-hermit@cea9af7913204a965fd488637a8d1811bba2e616 # v1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: |
+            .
+            desktop/src-tauri
+          shared-key: mac-workspace-bridge-macos
+      - name: Install desktop dependencies
+        run: just desktop-install-ci
+      - name: Build desktop sidecars
+        run: |
+          cargo build --release -p buzz-acp -p buzz-agent -p buzz-dev-mcp -p git-credential-nostr -p buzz-cli
+          ./scripts/bundle-sidecars.sh
+      - name: Build unsigned owner client
+        run: cd desktop && pnpm tauri build --no-sign --bundles dmg
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          MACOSX_DEPLOYMENT_TARGET: "10.15"
+          CMAKE_OSX_DEPLOYMENT_TARGET: "10.15"
+      - name: Stage owner client provenance
+        env:
+          REVISION: ${{ needs.source.outputs.revision }}
+        run: |
+          set -euo pipefail
+          mkdir stage
+          DMG=$(find desktop/src-tauri/target/release/bundle/dmg -name '*.dmg' -type f | head -1)
+          test -n "$DMG"
+          cp "$DMG" stage/
+          printf '%s\n' "$REVISION" > stage/source-revision.txt
+          (cd stage && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mac-workspace-owner-client-${{ needs.source.outputs.revision }}
+          path: stage
+          if-no-files-found: error
+          retention-days: 7
