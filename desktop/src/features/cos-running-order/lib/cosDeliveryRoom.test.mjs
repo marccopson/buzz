@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   cosDeliveryRoomEndpoint,
+  cosDeliveryRoomExpiresAt,
   cosDeliveryRoomGenerationId,
   loadCosDeliveryRoom,
   projectCosDeliveryRoom,
@@ -246,6 +247,72 @@ test("counts only current actor-attributed participation and preserves quiet inv
   assert.deepEqual(team?.contributingParticipantIds, ["builder"]);
   assert.equal(team?.participants[0]?.state, "working");
   assert.equal(team?.signOff.status, "not_signed_off");
+});
+
+test("expires the projection at the earliest source or presented evidence deadline", () => {
+  const sourceFirst = projectCosDeliveryRoom(envelope(), { now: NOW });
+  assert.equal(
+    cosDeliveryRoomExpiresAt(sourceFirst),
+    new Date("2026-07-31T09:19:00.000Z").getTime(),
+  );
+
+  const envelopeGeneratedFirst = copy(sourceFirst);
+  envelopeGeneratedFirst.source.reconciliation.observedAt =
+    envelopeGeneratedFirst.generatedAt;
+  envelopeGeneratedFirst.source.agentHealth.observedAt =
+    envelopeGeneratedFirst.generatedAt;
+  assert.equal(
+    cosDeliveryRoomExpiresAt(envelopeGeneratedFirst),
+    new Date("2026-07-31T09:20:00.000Z").getTime(),
+  );
+
+  const evidenceDeadline = new Date("2026-07-31T09:05:30.000Z").getTime();
+  const shortEvidence = evidence("short-lived", "human");
+  shortEvidence.freshForMs = 90_000;
+  const evidenceLocations = [
+    (room) => {
+      room.deliveryRoom.workItems[1].evidence = [shortEvidence];
+    },
+    (room) => {
+      room.deliveryRoom.workItems[1].objectiveGates[0].evidence = shortEvidence;
+    },
+    (room) => {
+      room.deliveryRoom.teams[0].participants[0].evidence = [shortEvidence];
+    },
+    (room) => {
+      room.deliveryRoom.teams[0].contributions[0].evidence = [shortEvidence];
+    },
+    (room) => {
+      room.deliveryRoom.teams[0].dissent = [
+        {
+          id: "dissent",
+          participantId: "builder",
+          summary: "Recorded dissent.",
+          evidence: [shortEvidence],
+        },
+      ];
+    },
+    (room) => {
+      room.deliveryRoom.teams[0].synthesis = {
+        participantId: "builder",
+        summary: "Recorded synthesis.",
+        evidence: [shortEvidence],
+      };
+    },
+    (room) => {
+      room.deliveryRoom.teams[0].signOff = {
+        status: "signed_off",
+        participantId: "builder",
+        evidence: shortEvidence,
+      };
+    },
+  ];
+
+  for (const installEvidence of evidenceLocations) {
+    const room = copy(sourceFirst);
+    installEvidence(room);
+    assert.equal(cosDeliveryRoomExpiresAt(room), evidenceDeadline);
+  }
 });
 
 test("fails closed on duplicate fixed-room mappings while preserving reviewed optional mapping semantics", () => {

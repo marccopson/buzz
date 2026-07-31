@@ -210,6 +210,35 @@ test("stale signed source hides all delivery claims", async ({ page }) => {
   ).toHaveCount(0);
 });
 
+test("current claims fail closed when their signed freshness expires", async ({
+  page,
+}) => {
+  await installMockBridge(page, { cosUserContext: "admin" });
+  await page.route("**/api/mac-delivery-room/v1", async (route) => {
+    const fixture = await currentFixture();
+    fixture.source.maxAgeSeconds = 3;
+    fixture.generationId = await cosDeliveryRoomGenerationId(fixture);
+    await route.fulfill({
+      body: JSON.stringify(fixture),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+
+  await page.goto("/#/running-order");
+  await expect(page.getByTestId("delivery-room-item-COS-901")).toBeVisible();
+  await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible({
+    timeout: 6_000,
+  });
+  await expect(page.getByTestId("delivery-room-fail-closed")).toContainText(
+    "Delivery Room evidence expired",
+  );
+  await expect(
+    page.locator("[data-testid^='delivery-room-item-']"),
+  ).toHaveCount(0);
+  await expect(page.getByText("Signed source verified")).toHaveCount(0);
+});
+
 test("a stale refetch clears previously verified delivery claims", async ({
   page,
 }) => {

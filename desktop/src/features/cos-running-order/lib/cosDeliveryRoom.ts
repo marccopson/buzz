@@ -24,6 +24,7 @@ import { REVIEWED_TEAM_TEMPLATES } from "./cosDeliveryRoomTemplates.ts";
 import { strictDeliveryRoomDate } from "./cosDeliveryRoomTime.ts";
 
 export * from "./cosDeliveryRoomDigest.ts";
+export * from "./cosDeliveryRoomExpiry.ts";
 export * from "./cosDeliveryRoomThreads.ts";
 export * from "./cosDeliveryRoomTypes.ts";
 

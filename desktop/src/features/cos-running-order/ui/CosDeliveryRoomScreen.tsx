@@ -23,6 +23,7 @@ import {
   type DeliveryRoomTeamTemplate,
   type DeliveryRoomWorkHealth,
   type DeliveryRoomWorkItem,
+  cosDeliveryRoomExpiresAt,
   deliveryRoomTeamTemplateId,
   loadCosDeliveryRoom,
   teamThreadForWork,
@@ -854,6 +855,7 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
 
 export function CosDeliveryRoomScreen() {
   const { activeCommunity } = useCommunities();
+  const [freshnessNow, setFreshnessNow] = React.useState(() => Date.now());
   const deliveryRoomQuery = useQuery({
     queryKey: ["cos-delivery-room", activeCommunity?.relayUrl],
     queryFn: ({ signal }) =>
@@ -868,6 +870,37 @@ export function CosDeliveryRoomScreen() {
     retry: false,
     staleTime: 30_000,
   });
+  const semanticExpiry = deliveryRoomQuery.data
+    ? cosDeliveryRoomExpiresAt(deliveryRoomQuery.data)
+    : undefined;
+  const evidenceExpired =
+    semanticExpiry !== undefined && freshnessNow >= semanticExpiry;
+  const failClosed = deliveryRoomQuery.isError || evidenceExpired;
+
+  React.useEffect(() => {
+    if (semanticExpiry === undefined) return;
+
+    const checkFreshness = () => setFreshnessNow(Date.now());
+    let timer: number | undefined;
+    const scheduleCheck = () => {
+      const remainingMs = Math.max(semanticExpiry - Date.now(), 0);
+      timer = window.setTimeout(
+        () => {
+          checkFreshness();
+          if (Date.now() < semanticExpiry) scheduleCheck();
+        },
+        Math.min(remainingMs, 2_147_483_647),
+      );
+    };
+    scheduleCheck();
+    window.addEventListener("focus", checkFreshness);
+    document.addEventListener("visibilitychange", checkFreshness);
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer);
+      window.removeEventListener("focus", checkFreshness);
+      document.removeEventListener("visibilitychange", checkFreshness);
+    };
+  }, [semanticExpiry]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
@@ -907,7 +940,7 @@ export function CosDeliveryRoomScreen() {
           </div>
         ) : null}
 
-        {deliveryRoomQuery.isError ? (
+        {failClosed ? (
           <div
             className="mx-auto max-w-[96rem] rounded-xl border border-destructive/30 bg-destructive/5 p-5"
             data-testid="delivery-room-fail-closed"
@@ -919,9 +952,11 @@ export function CosDeliveryRoomScreen() {
                   Delivery evidence unavailable
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {deliveryRoomQuery.error instanceof Error
-                    ? deliveryRoomQuery.error.message
-                    : "The signed Delivery Room projection could not be verified."}
+                  {evidenceExpired
+                    ? "Delivery Room evidence expired before a new signed projection was available."
+                    : deliveryRoomQuery.error instanceof Error
+                      ? deliveryRoomQuery.error.message
+                      : "The signed Delivery Room projection could not be verified."}
                 </p>
                 <p className="mt-2 text-xs text-muted-foreground">
                   No progress, activity, participation or completion state is
@@ -932,7 +967,7 @@ export function CosDeliveryRoomScreen() {
           </div>
         ) : null}
 
-        {deliveryRoomQuery.data && !deliveryRoomQuery.isError ? (
+        {deliveryRoomQuery.data && !failClosed ? (
           <>
             <div className="mx-auto mb-4 flex max-w-[96rem] flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-300">
