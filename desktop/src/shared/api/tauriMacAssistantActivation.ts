@@ -36,3 +36,16 @@ export async function attestMacAssistantEnrolment(
     ...context,
   });
 }
+
+/**
+ * Sign one bridge-authored recovery request. The native command validates the
+ * bridge signature, purpose, relay and short expiry before using Desktop's
+ * in-memory identity.
+ */
+export async function attestMacAssistantBridgeAuthorisation(
+  requestEventJson: string,
+): Promise<string> {
+  return tauriInvoke<string>("attest_mac_assistant_bridge_authorisation", {
+    requestEventJson,
+  });
+}

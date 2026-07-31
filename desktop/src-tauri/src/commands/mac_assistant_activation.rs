@@ -49,6 +49,30 @@ pub fn attest_mac_assistant_enrolment(
     Ok(event.as_json())
 }
 
+/// Sign a bridge-authored, short-lived recovery request with the current
+/// Workspace identity. The native side verifies the request before it reaches
+/// signing keys, so the webview cannot ask Desktop to authorise an arbitrary
+/// bridge key.
+#[tauri::command]
+pub fn attest_mac_assistant_bridge_authorisation(
+    request_event_json: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let keys = state.signing_keys()?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock precedes the Unix epoch".to_string())?
+        .as_secs();
+    let authorisation = buzz_sdk_pkg::mac_assistant_bridge_authorisation::authorise_request(
+        &request_event_json,
+        &keys,
+        now,
+    )
+    .map_err(|error| format!("MAC Workspace bridge authorisation rejected: {error}"))?;
+    serde_json::to_string(&authorisation)
+        .map_err(|error| format!("MAC Workspace bridge authorisation encoding failed: {error}"))
+}
+
 #[tauri::command]
 pub fn attest_mac_assistant_activation(
     request_json: String,

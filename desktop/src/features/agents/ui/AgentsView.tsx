@@ -21,6 +21,7 @@ import { TeamDeleteDialog } from "./TeamDeleteDialog";
 import { TeamDialog } from "./TeamDialog";
 import { TeamsSection } from "./TeamsSection";
 import { UnifiedAgentsSection } from "./UnifiedAgentsSection";
+import { MacBridgeAuthorisationDialog } from "./MacBridgeAuthorisationDialog";
 import { useManagedAgentActions } from "./useManagedAgentActions";
 import { usePersonaActions } from "./usePersonaActions";
 import { useTeamActions } from "./useTeamActions";
@@ -42,6 +43,8 @@ export function AgentsView() {
   const teamImportInputRef = React.useRef<HTMLInputElement | null>(null);
   const aiDefaultsTriggerRef = React.useRef<HTMLButtonElement>(null);
   const [isAiDefaultsOpen, setIsAiDefaultsOpen] = React.useState(false);
+  const [isBridgeAuthorisationOpen, setIsBridgeAuthorisationOpen] =
+    React.useState(false);
   // Exclusivity: create never sets `personaDialogState` (edit/dup/import do),
   // so the create-mode and definition-edit AgentDialog mounts never coexist.
   const [isCreateDialogOpen, setIsCreateDialogOpen] = React.useState(false);
@@ -110,6 +113,13 @@ export function AgentsView() {
           <PageHeader
             action={
               <div className="flex flex-wrap justify-end gap-2">
+                <Button
+                  onClick={() => setIsBridgeAuthorisationOpen(true)}
+                  size="sm"
+                  variant="outline"
+                >
+                  Authorise MAC bridge
+                </Button>
                 <Button
                   onClick={() => setIsAiDefaultsOpen(true)}
                   ref={aiDefaultsTriggerRef}
@@ -234,6 +244,10 @@ export function AgentsView() {
         onOpenChange={setIsAiDefaultsOpen}
         open={isAiDefaultsOpen}
         returnFocusRef={aiDefaultsTriggerRef}
+      />
+      <MacBridgeAuthorisationDialog
+        onOpenChange={setIsBridgeAuthorisationOpen}
+        open={isBridgeAuthorisationOpen}
       />
 
       {isCreateDialogOpen ? (
