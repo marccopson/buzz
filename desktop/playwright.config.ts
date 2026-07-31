@@ -82,7 +82,7 @@ export default defineConfig({
         "**/threadpane-ultrawide.spec.ts",
         "**/thread-focus-mode.spec.ts",
         "**/animated-avatar.spec.ts",
-        "**/cos-running-order.spec.ts",
+        "**/cos-delivery-room.spec.ts",
         "**/control-room.spec.ts",
         "**/cos-my-actions.spec.ts",
         "**/cos-workspace-sidebar.spec.ts",

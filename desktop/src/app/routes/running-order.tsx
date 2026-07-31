@@ -4,11 +4,11 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 import { CosWorkspaceModuleGate } from "@/features/cos-user-context/ui/CosWorkspaceModuleGate";
 
-const CosRunningOrderScreen = React.lazy(async () => {
+const CosDeliveryRoomScreen = React.lazy(async () => {
   const module = await import(
-    "@/features/cos-running-order/ui/CosRunningOrderScreen"
+    "@/features/cos-running-order/ui/CosDeliveryRoomScreen"
   );
-  return { default: module.CosRunningOrderScreen };
+  return { default: module.CosDeliveryRoomScreen };
 });
 
 export const Route = createFileRoute("/running-order")({
@@ -21,7 +21,7 @@ function RunningOrderRouteComponent() {
       fallback={<ViewLoadingFallback includeHeader kind="projects" />}
     >
       <CosWorkspaceModuleGate module="running_order">
-        <CosRunningOrderScreen />
+        <CosDeliveryRoomScreen />
       </CosWorkspaceModuleGate>
     </React.Suspense>
   );
