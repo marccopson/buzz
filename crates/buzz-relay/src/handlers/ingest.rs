@@ -14,22 +14,24 @@ use buzz_core::kind::{
     event_kind_u32, is_identity_archive_request_kind, is_parameterized_replaceable,
     is_relay_admin_kind, KIND_AGENT_ENGRAM, KIND_AGENT_PROFILE, KIND_AGENT_TURN_METRIC,
     KIND_APPROVAL_DENY, KIND_APPROVAL_GRANT, KIND_AUTH, KIND_BOOKMARK_LIST, KIND_BOOKMARK_SET,
-    KIND_CANVAS, KIND_CONTACT_LIST, KIND_DELETION, KIND_DM_ADD_MEMBER, KIND_DM_HIDE, KIND_DM_OPEN,
-    KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER, KIND_FOLLOW_SET, KIND_FORUM_COMMENT,
-    KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP, KIND_GIT_ISSUE, KIND_GIT_PATCH,
-    KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST, KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE,
-    KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT, KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN,
-    KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES, KIND_HUDDLE_PARTICIPANT_JOINED,
-    KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED, KIND_IA_ARCHIVE_REQUEST,
-    KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM, KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION,
-    KIND_MEMBER_REMOVED_NOTIFICATION, KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT,
-    KIND_MODERATION_TIMEOUT, KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST,
-    KIND_NIP29_CREATE_GROUP, KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP,
-    KIND_NIP29_EDIT_METADATA, KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST,
-    KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER, KIND_NIP43_LEAVE_REQUEST,
-    KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST, KIND_PRESENCE_UPDATE,
-    KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_REACTION, KIND_READ_STATE, KIND_REPORT,
-    KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
+    KIND_CANVAS, KIND_CONTACT_LIST, KIND_COS_FOLLOW_UP_COMMAND, KIND_COS_FOLLOW_UP_ITEM,
+    KIND_COS_FOLLOW_UP_RECEIPT, KIND_COS_USER_CONTEXT, KIND_DELETION, KIND_DM_ADD_MEMBER,
+    KIND_DM_HIDE, KIND_DM_OPEN, KIND_EMOJI_LIST, KIND_EMOJI_SET, KIND_EVENT_REMINDER,
+    KIND_FOLLOW_SET, KIND_FORUM_COMMENT, KIND_FORUM_POST, KIND_FORUM_VOTE, KIND_GIFT_WRAP,
+    KIND_GIT_ISSUE, KIND_GIT_PATCH, KIND_GIT_PR_UPDATE, KIND_GIT_PULL_REQUEST,
+    KIND_GIT_REPO_ANNOUNCEMENT, KIND_GIT_REPO_STATE, KIND_GIT_STATUS_CLOSED, KIND_GIT_STATUS_DRAFT,
+    KIND_GIT_STATUS_MERGED, KIND_GIT_STATUS_OPEN, KIND_HUDDLE_ENDED, KIND_HUDDLE_GUIDELINES,
+    KIND_HUDDLE_PARTICIPANT_JOINED, KIND_HUDDLE_PARTICIPANT_LEFT, KIND_HUDDLE_STARTED,
+    KIND_IA_ARCHIVE_REQUEST, KIND_IA_UNARCHIVE_REQUEST, KIND_LONG_FORM,
+    KIND_MAC_ASSISTANT_ENROLMENT_ATTESTATION, KIND_MAC_ASSISTANT_ENROLMENT_REQUEST,
+    KIND_MANAGED_AGENT, KIND_MEMBER_ADDED_NOTIFICATION, KIND_MEMBER_REMOVED_NOTIFICATION,
+    KIND_MODERATION_BAN, KIND_MODERATION_RESOLVE_REPORT, KIND_MODERATION_TIMEOUT,
+    KIND_MODERATION_UNBAN, KIND_MODERATION_UNTIMEOUT, KIND_MUTE_LIST, KIND_NIP29_CREATE_GROUP,
+    KIND_NIP29_DELETE_EVENT, KIND_NIP29_DELETE_GROUP, KIND_NIP29_EDIT_METADATA,
+    KIND_NIP29_JOIN_REQUEST, KIND_NIP29_LEAVE_REQUEST, KIND_NIP29_PUT_USER, KIND_NIP29_REMOVE_USER,
+    KIND_NIP43_LEAVE_REQUEST, KIND_NIP65_RELAY_LIST_METADATA, KIND_PERSONA, KIND_PIN_LIST,
+    KIND_PRESENCE_UPDATE, KIND_PRODUCT_FEEDBACK, KIND_PROFILE, KIND_REACTION, KIND_READ_STATE,
+    KIND_REPORT, KIND_STREAM_MESSAGE, KIND_STREAM_MESSAGE_BOOKMARKED, KIND_STREAM_MESSAGE_DIFF,
     KIND_STREAM_MESSAGE_EDIT, KIND_STREAM_MESSAGE_PINNED, KIND_STREAM_MESSAGE_SCHEDULED,
     KIND_STREAM_MESSAGE_V2, KIND_STREAM_REMINDER, KIND_TEAM, KIND_TEXT_NOTE, KIND_USER_STATUS,
     KIND_WORKFLOW_DEF, KIND_WORKFLOW_TRIGGER, RELAY_ADMIN_ADD_MEMBER, RELAY_ADMIN_CHANGE_ROLE,
@@ -183,6 +185,19 @@ pub enum IngestError {
     Internal(String),
 }
 
+fn map_relay_admin_error(error: super::relay_admin::RelayAdminError) -> IngestError {
+    use super::relay_admin::RelayAdminError;
+    match error {
+        // Same wire prefix and HTTP status (403) as every other durable
+        // restriction refusal — see the write-path gate below and `auth.rs`.
+        RelayAdminError::Banned => {
+            IngestError::AuthFailed("blocked: you are banned from this community".to_string())
+        }
+        RelayAdminError::Rejected(reason) => IngestError::Rejected(format!("invalid: {reason}")),
+        RelayAdminError::Internal(reason) => IngestError::Internal(format!("error: {reason}")),
+    }
+}
+
 fn map_push_accept_error(error: super::push_lease::AcceptError) -> IngestError {
     match error {
         super::push_lease::AcceptError::Validation(reason) => {
@@ -229,6 +244,12 @@ fn required_scope_for_kind(kind: u32, event: &Event) -> Result<Scope, &'static s
         | KIND_EMOJI_LIST
         | KIND_AGENT_PROFILE => Ok(Scope::UsersWrite),
         KIND_DELETION
+        | KIND_COS_FOLLOW_UP_ITEM
+        | KIND_COS_USER_CONTEXT
+        | KIND_COS_FOLLOW_UP_COMMAND
+        | KIND_COS_FOLLOW_UP_RECEIPT
+        | KIND_MAC_ASSISTANT_ENROLMENT_REQUEST
+        | KIND_MAC_ASSISTANT_ENROLMENT_ATTESTATION
         | KIND_REACTION
         | KIND_GIFT_WRAP
         | KIND_STREAM_MESSAGE
@@ -480,6 +501,12 @@ pub(crate) fn requires_h_channel_scope(kind: u32) -> bool {
             | KIND_HUDDLE_PARTICIPANT_LEFT
             | KIND_HUDDLE_ENDED
             | KIND_HUDDLE_GUIDELINES
+            | KIND_COS_FOLLOW_UP_ITEM
+            | KIND_COS_USER_CONTEXT
+            | KIND_COS_FOLLOW_UP_COMMAND
+            | KIND_COS_FOLLOW_UP_RECEIPT
+            | KIND_MAC_ASSISTANT_ENROLMENT_REQUEST
+            | KIND_MAC_ASSISTANT_ENROLMENT_ATTESTATION
     )
 }
 
@@ -1555,6 +1582,27 @@ async fn ingest_event_inner(
         )));
     }
 
+    let is_cos_follow_up_removal = kind_u32 == KIND_DELETION
+        && event.tags.iter().any(|tag| {
+            let parts = tag.as_slice();
+            parts.first().is_some_and(|name| name == "item")
+        });
+    let cos_follow_up = if matches!(
+        kind_u32,
+        KIND_COS_FOLLOW_UP_ITEM
+            | KIND_COS_USER_CONTEXT
+            | KIND_COS_FOLLOW_UP_COMMAND
+            | KIND_COS_FOLLOW_UP_RECEIPT
+    ) || is_cos_follow_up_removal
+    {
+        Some(
+            buzz_core::cos_follow_up::parse_event(&event)
+                .map_err(|error| IngestError::Rejected(format!("invalid: {error}")))?,
+        )
+    } else {
+        None
+    };
+
     // Command kinds are routed AFTER signature verification, timestamp check,
     // pubkey/auth match, and scope validation — never before.
     if buzz_core::kind::is_command_kind(kind_u32) {
@@ -1624,7 +1672,10 @@ async fn ingest_event_inner(
     // is the durable backstop the fan-out's best-effort delivery relies on.
     // Moderation commands enforce bans inside their handler and remain exempt
     // here only so timeouts do not disarm the tool used to lift them. Relay-admin
-    // commands retain their separate authorization policy.
+    // commands (9030–9033) are exempt for the same reason — a timed-out admin
+    // must still be able to administer the roster — and likewise enforce the
+    // durable ban inside `relay_admin::handle_relay_admin_event`. Any kind added
+    // to this exemption owes the same handler-local ban check.
     //
     // Scope: this gate checks the *authoring* pubkey only, with no NIP-OA
     // owner→agent cascade. That cascade lives at the auth seam for bans, where
@@ -1732,6 +1783,11 @@ async fn ingest_event_inner(
         extract_channel_id(&event)
     };
 
+    if let Some(buzz_core::cos_follow_up::FollowUpEvent::Remove(removal)) = cos_follow_up.as_ref() {
+        validate_cos_follow_up_removal_channel(removal.channel_id, channel_id)
+            .map_err(|message| IngestError::Rejected(message.into()))?;
+    }
+
     if is_global_only_kind(kind_u32) {
         channel_id = None;
     }
@@ -1765,6 +1821,15 @@ async fn ingest_event_inner(
         Some(ch_id) => state.db.get_channel(tenant.community(), ch_id).await.ok(),
         None => None,
     };
+    if cos_follow_up.is_some()
+        && channel_row
+            .as_ref()
+            .is_none_or(|channel| channel.visibility != "private")
+    {
+        return Err(IngestError::Rejected(
+            "restricted: COS follow-up events require a private per-identity channel".into(),
+        ));
+    }
     // E1 phase-2 (§4.8 phase-2 addendum): resolve the fan-out visibility once,
     // here, through the same `channel_visibility_cached` gate fan-out uses
     // (fence 2: cached `private` wins over the prefetched row; a `private`
@@ -1828,13 +1893,86 @@ async fn ingest_event_inner(
             );
             auth_result.map_err(IngestError::Rejected)?;
         }
+
+        if let Some(follow_up) = &cos_follow_up {
+            use buzz_core::cos_follow_up::FollowUpEvent;
+
+            let is_authoritative = matches!(
+                follow_up,
+                FollowUpEvent::Item(_)
+                    | FollowUpEvent::UserContext(_)
+                    | FollowUpEvent::Receipt(_)
+                    | FollowUpEvent::Remove(_)
+            );
+            let trusted_bridge = state
+                .config
+                .cos_follow_up_bridge_pubkey
+                .as_deref()
+                .ok_or_else(|| {
+                    IngestError::AuthFailed(
+                        "restricted: COS follow-up authority is not configured".into(),
+                    )
+                })?;
+            let trusted_bridge_bytes = hex::decode(trusted_bridge).map_err(|_| {
+                IngestError::Internal(
+                    "error: configured COS follow-up bridge pubkey is invalid".into(),
+                )
+            })?;
+            let bridge_role = state
+                .db
+                .get_member_role(tenant.community(), ch_id, &trusted_bridge_bytes)
+                .await
+                .map_err(|error| {
+                    IngestError::Internal(format!(
+                        "error: checking configured COS follow-up bridge role: {error}"
+                    ))
+                })?;
+            if !cos_follow_up_actor_authorized(
+                is_authoritative,
+                &event.pubkey.to_hex(),
+                Some(trusted_bridge),
+                bridge_role.as_deref(),
+            ) {
+                let message = if bridge_role.as_deref() != Some("owner") {
+                    "restricted: COS follow-up channel is not owned by the configured bridge"
+                } else {
+                    "restricted: COS follow-up state must be signed by the configured bridge"
+                };
+                return Err(IngestError::AuthFailed(message.into()));
+            }
+
+            let projected_assignee = match follow_up {
+                FollowUpEvent::Item(item) => Some(item.assignee.to_bytes()),
+                FollowUpEvent::UserContext(context) => Some(context.assignee.to_bytes()),
+                _ => None,
+            };
+            if let Some(assignee) = projected_assignee {
+                let assignee_is_member = state
+                    .is_member_cached(tenant.community(), ch_id, &assignee)
+                    .await
+                    .map_err(|error| {
+                        IngestError::Internal(format!(
+                            "error: checking COS follow-up assignee membership: {error}"
+                        ))
+                    })?;
+                if !assignee_is_member {
+                    return Err(IngestError::Rejected(
+                        "restricted: COS follow-up assignee must be a member of the private channel"
+                            .into(),
+                    ));
+                }
+            }
+        }
     }
 
     // Handled directly — these mutate relay_members and do NOT get stored.
+    // The handler enforces the durable community ban itself: the write-path
+    // gate above exempts relay-admin kinds so timed-out admins keep their
+    // administrative capability, which leaves bans to the handler.
     if is_relay_admin_kind(event.kind.as_u16() as u32) {
         crate::handlers::relay_admin::handle_relay_admin_event(tenant, state, &event)
             .await
-            .map_err(|e| IngestError::Rejected(format!("invalid: {e}")))?;
+            .map_err(map_relay_admin_error)?;
         return Ok(IngestResult {
             event_id: event_id_hex,
             accepted: true,
@@ -2529,6 +2667,29 @@ async fn ingest_event_inner(
     })
 }
 
+fn cos_follow_up_actor_authorized(
+    is_authoritative: bool,
+    actor_pubkey: &str,
+    trusted_bridge_pubkey: Option<&str>,
+    channel_bridge_role: Option<&str>,
+) -> bool {
+    trusted_bridge_pubkey.is_some_and(|trusted| {
+        channel_bridge_role == Some("owner")
+            && (!is_authoritative || actor_pubkey.eq_ignore_ascii_case(trusted))
+    })
+}
+
+fn validate_cos_follow_up_removal_channel(
+    signed_channel: Uuid,
+    target_storage_channel: Option<Uuid>,
+) -> Result<(), &'static str> {
+    if target_storage_channel == Some(signed_channel) {
+        Ok(())
+    } else {
+        Err("invalid: COS follow-up removal h tag does not match the target event channel")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -2541,6 +2702,62 @@ mod tests {
         KIND_STREAM_MESSAGE_DIFF, KIND_TEAM, KIND_USER_STATUS,
     };
     use nostr::{EventBuilder, Kind};
+
+    /// A banned relay admin must be refused with the same wire prefix and
+    /// transport status as every other durable-restriction refusal:
+    /// `blocked:` and (via `bridge.rs`'s `AuthFailed` arm) HTTP 403 — never
+    /// `invalid:`/400, which reads as "your request was malformed" and lets a
+    /// client retry-loop against an authorization decision.
+    #[test]
+    fn relay_admin_ban_maps_to_blocked_auth_failure() {
+        let mapped = map_relay_admin_error(super::super::relay_admin::RelayAdminError::Banned);
+        match mapped {
+            IngestError::AuthFailed(msg) => {
+                assert_eq!(msg, "blocked: you are banned from this community");
+            }
+            other => panic!("banned admin must map to AuthFailed (HTTP 403), got {other:?}"),
+        }
+    }
+
+    /// Validation/authorization failures keep the pre-existing `invalid:`
+    /// prefix and 400 status — this is the arm the whole 9030-series relied on
+    /// before the ban category existed, so it must not regress.
+    #[test]
+    fn relay_admin_rejection_keeps_invalid_prefix() {
+        let mapped = map_relay_admin_error(super::super::relay_admin::RelayAdminError::Rejected(
+            "actor not authorized: must be admin or owner".to_string(),
+        ));
+        match mapped {
+            IngestError::Rejected(msg) => {
+                assert_eq!(
+                    msg, "invalid: actor not authorized: must be admin or owner",
+                    "existing relay-admin rejections must keep their exact wire text"
+                );
+            }
+            other => panic!("validation failure must map to Rejected, got {other:?}"),
+        }
+    }
+
+    /// A restriction-lookup outage is a server fault, not a client one. It
+    /// must fail closed as `error:`/500 so a Postgres blip can neither admit a
+    /// banned admin nor be reported to an innocent one as a bad request.
+    #[test]
+    fn relay_admin_internal_maps_to_error_not_client_fault() {
+        let mapped = map_relay_admin_error(super::super::relay_admin::RelayAdminError::Internal(
+            "internal error checking restriction state: pool timed out".to_string(),
+        ));
+        match mapped {
+            IngestError::Internal(msg) => {
+                assert!(
+                    msg.starts_with("error: "),
+                    "internal failures need the `error:` NIP-01 prefix, got {msg:?}"
+                );
+            }
+            other => {
+                panic!("restriction DB failure must map to Internal (HTTP 500), got {other:?}")
+            }
+        }
+    }
 
     #[derive(Debug, Default)]
     struct VecTracer {
@@ -2618,6 +2835,63 @@ mod tests {
                 "kind {kind} should require h"
             );
         }
+    }
+
+    #[test]
+    fn cos_follow_up_kinds_are_channel_scoped_message_writes() {
+        let dummy = make_dummy_event();
+        for kind in [
+            KIND_COS_FOLLOW_UP_ITEM,
+            KIND_COS_USER_CONTEXT,
+            KIND_COS_FOLLOW_UP_COMMAND,
+            KIND_COS_FOLLOW_UP_RECEIPT,
+        ] {
+            assert!(
+                requires_h_channel_scope(kind),
+                "kind {kind} should require h"
+            );
+            assert_eq!(
+                required_scope_for_kind(kind, &dummy).unwrap(),
+                Scope::MessagesWrite
+            );
+            assert!(!is_global_only_kind(kind));
+        }
+    }
+
+    #[test]
+    fn cos_follow_up_authority_rejects_a_competing_private_channel_owner() {
+        let trusted_bridge = "a".repeat(64);
+        let malicious_owner = "b".repeat(64);
+
+        assert!(
+            !cos_follow_up_actor_authorized(
+                true,
+                &malicious_owner,
+                Some(&trusted_bridge),
+                Some("owner"),
+            ),
+            "owner role alone must not authorise an authoritative COS event"
+        );
+        assert!(
+            !cos_follow_up_actor_authorized(true, &trusted_bridge, None, Some("owner")),
+            "missing relay authority must fail closed"
+        );
+    }
+
+    #[test]
+    fn cos_follow_up_tombstone_rejects_signed_h_mismatched_from_target_e_channel() {
+        let signed_h = Uuid::new_v4();
+        let target_storage_channel = Uuid::new_v4();
+
+        assert!(
+            validate_cos_follow_up_removal_channel(signed_h, Some(target_storage_channel)).is_err(),
+            "a signed h must not authorise deletion of an e target stored in another channel"
+        );
+        assert!(validate_cos_follow_up_removal_channel(signed_h, Some(signed_h)).is_ok());
+        assert!(
+            validate_cos_follow_up_removal_channel(signed_h, None).is_err(),
+            "a scoped COS tombstone must fail closed when its e target has no stored channel"
+        );
     }
 
     #[test]

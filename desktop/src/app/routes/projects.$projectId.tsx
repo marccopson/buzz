@@ -1,6 +1,7 @@
 import * as React from "react";
 import { createFileRoute } from "@tanstack/react-router";
 
+import { CosWorkspaceModuleGate } from "@/features/cos-user-context/ui/CosWorkspaceModuleGate";
 import { usePreviewFeatureWarning } from "@/shared/features";
 import { ViewLoadingFallback } from "@/shared/ui/ViewLoadingFallback";
 
@@ -29,12 +30,14 @@ function ProjectDetailRouteComponent() {
 
   return (
     <React.Suspense fallback={<ViewLoadingFallback kind="projects" />}>
-      <ProjectDetailScreen
-        commitHash={commitHash}
-        issueId={issueId}
-        projectId={projectId}
-        pullRequestId={pullRequestId}
-      />
+      <CosWorkspaceModuleGate module="agents">
+        <ProjectDetailScreen
+          commitHash={commitHash}
+          issueId={issueId}
+          projectId={projectId}
+          pullRequestId={pullRequestId}
+        />
+      </CosWorkspaceModuleGate>
     </React.Suspense>
   );
 }

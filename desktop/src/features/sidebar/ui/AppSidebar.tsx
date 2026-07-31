@@ -1,5 +1,7 @@
 // biome-ignore format: keep compact to stay within file size limit
 import * as React from "react";
+
+import type { AppView } from "@/app/AppShell.helpers";
 import { FeatureGate } from "@/shared/features";
 import { SidebarDndContext } from "@/features/sidebar/ui/SidebarDnd";
 
@@ -47,6 +49,7 @@ import { CreateChannelDialog } from "@/features/sidebar/ui/CreateChannelDialog";
 import { SidebarProfileCard } from "@/features/sidebar/ui/SidebarProfileCard";
 import { SidebarRelayConnectionCard } from "@/features/sidebar/ui/SidebarRelayConnectionCard";
 import type { useSidebarRelayConnectionCard } from "@/features/sidebar/ui/useSidebarRelayConnectionCard";
+import { useMacWorkspaceSidebar } from "@/features/sidebar/ui/useMacWorkspaceSidebar";
 import {
   SidebarLoadingContent,
   useSidebarLoadingShape,
@@ -98,14 +101,7 @@ type AppSidebarProps = {
   selfPresenceStatus: PresenceStatus;
   errorMessage?: string;
   selectedChannelId: string | null;
-  selectedView:
-    | "home"
-    | "channel"
-    | "messages"
-    | "agents"
-    | "workflows"
-    | "pulse"
-    | "projects";
+  selectedView: AppView;
   unreadChannelCounts: ReadonlyMap<string, number>;
   unreadChannelIds: ReadonlySet<string>;
   communities: Community[];
@@ -143,8 +139,11 @@ type AppSidebarProps = {
   onRemoveCommunity: (id: string) => void;
   onCreateAgent: () => void;
   onSelectAgents: () => void;
+  onSelectControlRoom: () => void;
+  onSelectMyActions: () => void;
   onSelectProjects: () => void;
   onSelectPulse: () => void;
+  onSelectRunningOrder: () => void;
   onSelectWorkflows: () => void;
   onSelectHome: () => void;
   onSelectChannel: (channelId: string) => void;
@@ -174,7 +173,6 @@ type AppSidebarProps = {
   onStarChannel?: (channelId: string) => void;
   onUnstarChannel?: (channelId: string) => void;
 };
-
 export function AppSidebar({
   addCommunityPrefill,
   activeCommunity,
@@ -212,8 +210,11 @@ export function AppSidebar({
   onRemoveCommunity,
   onCreateAgent,
   onSelectAgents,
+  onSelectControlRoom,
+  onSelectMyActions,
   onSelectProjects,
   onSelectPulse,
+  onSelectRunningOrder,
   onSelectWorkflows,
   onSelectHome,
   onSelectChannel,
@@ -237,6 +238,7 @@ export function AppSidebar({
   onStarChannel,
   onUnstarChannel,
 }: AppSidebarProps) {
+  const macWorkspace = useMacWorkspaceSidebar();
   const activeWorkingByChannelId = useActiveWorkingChannelsById();
   const { status: updateStatus } = useUpdaterContext();
   const canShowSidebarUpdateCard = shouldShowSidebarUpdateCard(updateStatus);
@@ -405,8 +407,7 @@ export function AppSidebar({
         unassigned.push(channel);
       }
     }
-    // Apply each grouping's own sort preference; section membership itself
-    // is untouched.
+    // Apply each grouping's own sort preference.
     for (const sectionId of Object.keys(bySection)) {
       bySection[sectionId] = sortChannelsForSidebar(
         bySection[sectionId],
@@ -562,7 +563,9 @@ export function AppSidebar({
       variant="sidebar"
     >
       <div
-        className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+        className={`relative flex min-h-0 flex-1 flex-col overflow-hidden ${
+          communities.length > 1 ? "md:-ml-[11px] md:w-[calc(100%+11px)]" : ""
+        }`}
         data-sidebar-background
         data-testid="app-sidebar-scroll-anchor"
       >
@@ -607,11 +610,16 @@ export function AppSidebar({
               <AppSidebarPrimaryMenu
                 homeBadgeCount={homeBadgeCount}
                 onSelectAgents={onSelectAgents}
+                onSelectControlRoom={onSelectControlRoom}
                 onSelectHome={onSelectHome}
+                onSelectMyActions={onSelectMyActions}
                 onSelectProjects={onSelectProjects}
                 onSelectPulse={onSelectPulse}
+                onSelectRunningOrder={onSelectRunningOrder}
+                onSelectToday={macWorkspace.onSelectToday}
                 onSelectWorkflows={onSelectWorkflows}
                 selectedView={selectedView}
+                workspaceModules={macWorkspace.workspaceModules}
               />
 
               {isLoading ? (

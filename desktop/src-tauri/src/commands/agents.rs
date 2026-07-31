@@ -45,52 +45,15 @@ pub(super) fn retain_managed_agent_pending(
     state: &AppState,
     record: &ManagedAgentRecord,
 ) {
-    use crate::managed_agents::{
-        agent_events::{agent_event_content, build_agent_event},
-        persona_events::monotonic_created_at,
-        retention::{get_retained_event, open_retention_db, retain_event, RetainedEvent},
-    };
-    use buzz_core_pkg::kind::KIND_MANAGED_AGENT;
-    use nostr::JsonUtil;
+    use crate::managed_agents::{reconcile::retain_agent_record, retention::open_retention_db};
 
     let result = (|| -> Result<(), String> {
         let conn = open_retention_db(&managed_agents_base_dir(app)?.join("retention.db"))?;
-        // The published content is the opt-IN projection JSON, independent of
-        // signing and created_at. Compute it once to drive the no-republish
-        // guard without signing twice.
-        let content = serde_json::to_string(&agent_event_content(record))
-            .map_err(|e| format!("failed to serialize managed-agent content: {e}"))?;
-        let (owner_pubkey, event) = {
-            let keys = state.signing_keys()?;
-            let owner_pubkey = keys.public_key().to_hex();
-            let existing =
-                get_retained_event(&conn, KIND_MANAGED_AGENT, &owner_pubkey, &record.pubkey)?;
-            // Skip re-publishing when the projection is unchanged: a start/stop
-            // or any edit that touched only excluded runtime/local fields
-            // produces an identical projection, so it is a no-op — operational
-            // churn never re-enqueues a publish.
-            if existing.as_ref().is_some_and(|row| row.content == content) {
-                return Ok(());
-            }
-            // Monotonic created_at: bump past the retained head (NIP-AP step 3).
-            let event = build_agent_event(record)?
-                .custom_created_at(monotonic_created_at(existing.map(|row| row.created_at)))
-                .sign_with_keys(&keys)
-                .map_err(|e| format!("failed to sign managed-agent event: {e}"))?;
-            (owner_pubkey, event)
-        };
-        retain_event(
-            &conn,
-            &RetainedEvent {
-                kind: KIND_MANAGED_AGENT,
-                pubkey: owner_pubkey,
-                d_tag: record.pubkey.clone(),
-                content: event.content.to_string(),
-                created_at: event.created_at.as_secs() as i64,
-                raw_event: event.as_json(),
-                pending_sync: true,
-            },
-        )
+        let keys = state.signing_keys()?;
+        // Shared engine with the boot-time reconcile: projection content diff
+        // (no republish for runtime-only churn) + monotonic created_at bump
+        // past the retained head (NIP-AP step 3).
+        retain_agent_record(&conn, &keys, record).map(|_| ())
     })();
     if let Err(e) = result {
         eprintln!("buzz-desktop: agent-retain: {e}");
@@ -389,7 +352,13 @@ pub(super) async fn start_local_agent_pairs_with_preflight(
         .iter()
         .find(|record| record.pubkey == pubkey)
         .ok_or_else(|| format!("agent {pubkey} not found"))?;
-    build_managed_agent_summary(app, record, &runtimes, &personas)
+    build_managed_agent_summary(
+        app,
+        record,
+        &runtimes,
+        &personas,
+        &crate::managed_agents::load_global_agent_config(app).unwrap_or_default(),
+    )
 }
 
 pub(super) async fn start_local_agent_with_preflight(
@@ -476,7 +445,13 @@ pub(super) async fn start_local_agent_with_preflight(
         .iter()
         .find(|record| record.pubkey == pubkey)
         .ok_or_else(|| format!("agent {pubkey} not found"))?;
-    build_managed_agent_summary(app, record, &runtimes, &personas)
+    build_managed_agent_summary(
+        app,
+        record,
+        &runtimes,
+        &personas,
+        &crate::managed_agents::load_global_agent_config(app).unwrap_or_default(),
+    )
 }
 
 /// Deploy an agent to a provider backend. Resolves the binary, calls deploy via
@@ -577,9 +552,16 @@ pub async fn list_managed_agents(app: AppHandle) -> Result<Vec<ManagedAgentSumma
         }
 
         let personas = load_personas(&app).unwrap_or_default();
+        // One disk read for the whole list — build_managed_agent_summary takes
+        // the config as a parameter precisely so this poll-every-5s call does
+        // not re-read it per record.
+        let global_config =
+            crate::managed_agents::load_global_agent_config(&app).unwrap_or_default();
         records
             .iter()
-            .map(|record| build_managed_agent_summary(&app, record, &runtimes, &personas))
+            .map(|record| {
+                build_managed_agent_summary(&app, record, &runtimes, &personas, &global_config)
+            })
             .collect()
     })
     .await
@@ -952,7 +934,13 @@ pub async fn create_managed_agent(
         retain_managed_agent_pending(&app, &state, record);
         let personas = load_personas(&app).unwrap_or_default();
         (
-            build_managed_agent_summary(&app, record, &runtimes, &personas)?,
+            build_managed_agent_summary(
+                &app,
+                record,
+                &runtimes,
+                &personas,
+                &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
+            )?,
             resolved_avatar_url,
         )
     };
@@ -982,7 +970,13 @@ pub async fn create_managed_agent(
                     .find(|record| record.pubkey == pubkey)
                     .ok_or_else(|| "created agent disappeared unexpectedly".to_string())?;
                 let personas = load_personas(&app).unwrap_or_default();
-                build_managed_agent_summary(&app, record, &runtimes, &personas)?
+                build_managed_agent_summary(
+                    &app,
+                    record,
+                    &runtimes,
+                    &personas,
+                    &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
+                )?
             }
         }
     } else {
@@ -1053,7 +1047,13 @@ pub async fn create_managed_agent(
             .find(|r| r.pubkey == pubkey)
             .ok_or_else(|| "agent disappeared".to_string())?;
         let personas = load_personas(&app).unwrap_or_default();
-        build_managed_agent_summary(&app, record, &runtimes, &personas)?
+        build_managed_agent_summary(
+            &app,
+            record,
+            &runtimes,
+            &personas,
+            &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
+        )?
     } else {
         agent
     };
@@ -1175,7 +1175,13 @@ pub async fn start_managed_agent(
                 .find(|r| r.pubkey == pubkey)
                 .ok_or_else(|| format!("agent {pubkey} not found"))?;
             let personas = load_personas(&app).unwrap_or_default();
-            build_managed_agent_summary(&app, record, &runtimes, &personas)
+            build_managed_agent_summary(
+                &app,
+                record,
+                &runtimes,
+                &personas,
+                &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
+            )
         }
         StartTarget::Provider { backend, .. } => Err(format!(
             "agent {pubkey} has unsupported backend kind: {backend:?}"
@@ -1257,7 +1263,13 @@ pub async fn stop_managed_agent(
             .find(|record| record.pubkey == pubkey)
             .ok_or_else(|| format!("agent {pubkey} not found"))?;
         let personas = load_personas(&app).unwrap_or_default();
-        build_managed_agent_summary(&app, record, &runtimes, &personas)
+        build_managed_agent_summary(
+            &app,
+            record,
+            &runtimes,
+            &personas,
+            &crate::managed_agents::load_global_agent_config(&app).unwrap_or_default(),
+        )
     })
     .await
     .map_err(|e| format!("spawn_blocking failed: {e}"))?

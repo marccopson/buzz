@@ -5,7 +5,7 @@ set -euo pipefail
 instance_id="${1:-}"
 keyring_service="${2:-}"
 
-if [[ "$instance_id" != "xyz.block.buzz.app.dev" && "$instance_id" != xyz.block.buzz.app.dev.* ]]; then
+if [[ "$instance_id" != "com.macsurfacing.workspace.dev" && "$instance_id" != com.macsurfacing.workspace.dev.* ]]; then
     echo "reset-desktop-standalone-state: refusing non-dev bundle identifier: $instance_id" >&2
     exit 1
 fi

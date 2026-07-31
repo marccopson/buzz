@@ -20,14 +20,12 @@ import {
   type RelaySubscriptionFilter,
 } from "@/shared/api/relayClientShared";
 import {
-  AUX_BACKFILL_CHUNK_SIZE,
   buildChannelAuxDeletionFilter,
   buildChannelFilter,
   buildChannelHistoryFilter,
   buildChannelMentionFilter,
   buildGlobalStreamFilter,
 } from "@/shared/api/relayChannelFilters";
-import { collectWithConcurrency } from "@/shared/api/concurrency";
 import {
   clearClosedRetry,
   handleRelayClosed,
@@ -40,7 +38,11 @@ import {
   parseRateLimitHint,
   waitForRateLimit,
 } from "@/shared/api/relayRateLimitGate";
-import { requestHistoryGated } from "@/shared/api/relayGateBoundary";
+import {
+  fetchChunkedHistory,
+  requestFirstEventGated,
+  requestHistoryGated,
+} from "@/shared/api/relayGateBoundary";
 import { RelayConnectionStateEmitter } from "@/shared/api/relayConnectionStateEmitter";
 import {
   isServiceRestartClose,
@@ -49,12 +51,12 @@ import {
   shouldScheduleReconnect,
 } from "@/shared/api/relayReconnectPolicy";
 import { RelayStallWatchdog } from "@/shared/api/relayStallWatchdog";
+import { createLiveSubscriptionReady } from "@/shared/api/relaySubscriptionReady";
 import { closeWebSocket } from "@/shared/api/relayWebSocketClose";
 import { buildThreadReferenceTags } from "@/features/messages/lib/threading";
 const RECONNECT_BASE_DELAY_MS = 1_000,
   RECONNECT_MAX_DELAY_MS = 30_000,
-  EVENT_BATCH_MS = 16,
-  AUX_BACKFILL_CONCURRENCY = 4;
+  EVENT_BATCH_MS = 16;
 
 /**
  * Op-level timeout constants. Raised from 8 s to 25 s to survive degraded
@@ -176,7 +178,7 @@ export class RelayClient {
     }
 
     for (const [subId, sub] of this.subscriptions) {
-      if (sub.mode === "history") {
+      if (sub.mode !== "live") {
         window.clearTimeout(sub.timeout);
         sub.reject(error);
       } else {
@@ -224,10 +226,10 @@ export class RelayClient {
       eventIds: string[],
     ) => RelaySubscriptionFilter,
   ) {
-    return this.fetchChunkedAuxEvents(
-      channelId,
+    return fetchChunkedHistory(
       referencedEventIds,
-      buildFilter,
+      (eventIds) => buildFilter(channelId, eventIds),
+      (filter) => this.fetchHistory(filter),
     );
   }
 
@@ -235,10 +237,10 @@ export class RelayClient {
     channelId: string,
     auxEventIds: string[],
   ): Promise<RelayEvent[]> {
-    return this.fetchChunkedAuxEvents(
-      channelId,
+    return fetchChunkedHistory(
       auxEventIds,
-      buildChannelAuxDeletionFilter,
+      (eventIds) => buildChannelAuxDeletionFilter(channelId, eventIds),
+      (filter) => this.fetchHistory(filter),
     );
   }
 
@@ -246,32 +248,21 @@ export class RelayClient {
     return this.fetchHistory(filter);
   }
 
-  private async fetchChunkedAuxEvents(
-    channelId: string,
-    eventIds: string[],
-    buildFilter: (
-      channelId: string,
-      eventIds: string[],
-    ) => RelaySubscriptionFilter,
-  ): Promise<RelayEvent[]> {
-    if (eventIds.length === 0) {
-      return [];
-    }
-
+  /**
+   * Return the first event matching `filter` as soon as it arrives, without
+   * waiting for EOSE. Resolves to `null` when EOSE arrives before any event.
+   */
+  async fetchFirstEvent(
+    filter: RelaySubscriptionFilter,
+  ): Promise<RelayEvent | null> {
     await this.ensureConnected();
-
-    const chunks: string[][] = [];
-    for (let i = 0; i < eventIds.length; i += AUX_BACKFILL_CHUNK_SIZE) {
-      chunks.push(eventIds.slice(i, i + AUX_BACKFILL_CHUNK_SIZE));
-    }
-
-    const batches = await collectWithConcurrency(
-      chunks,
-      AUX_BACKFILL_CONCURRENCY,
-      (ids) => this.requestHistory(buildFilter(channelId, ids)),
+    return requestFirstEventGated(
+      this.subscriptions,
+      (payload) => this.sendRaw(payload),
+      (subId) => this.closeSubscription(subId),
+      filter,
+      HISTORY_TIMEOUT_MS,
     );
-
-    return batches.flat();
   }
 
   private async fetchHistory(filter: RelaySubscriptionFilter) {
@@ -455,8 +446,9 @@ export class RelayClient {
   async subscribeLive(
     filter: RelaySubscriptionFilter,
     onEvent: (event: RelayEvent) => void,
+    requireEose = false,
   ) {
-    return this.subscribe(filter, onEvent);
+    return this.subscribe(filter, onEvent, requireEose);
   }
 
   async subscribeToChannelMentionEvents(
@@ -610,27 +602,20 @@ export class RelayClient {
   private async subscribe(
     filter: RelaySubscriptionFilter,
     onEvent: (event: RelayEvent) => void,
+    requireEose = false,
   ) {
     await this.ensureConnected();
 
     const subId = `live-${crypto.randomUUID()}`;
-    let resolveReady = () => {
-      return;
-    };
-    const ready = new Promise<void>((resolve) => {
-      resolveReady = () => {
-        window.clearTimeout(fallbackTimeout);
-        resolve();
-      };
-    });
-    const fallbackTimeout = window.setTimeout(() => {
-      resolveReady();
-    }, 250);
+    const { cancelReady, ready, rejectReady, resolveReady } =
+      createLiveSubscriptionReady(requireEose, HISTORY_TIMEOUT_MS);
 
     this.subscriptions.set(subId, {
       mode: "live",
       filter,
       onEvent,
+      requireEose,
+      rejectReady,
       resolveReady,
     });
 
@@ -639,12 +624,13 @@ export class RelayClient {
         ["REQ", subId, filter],
         "Failed to restore relay subscription.",
       );
+      await ready;
     } catch (error) {
-      window.clearTimeout(fallbackTimeout);
+      cancelReady();
       this.subscriptions.delete(subId);
+      await this.closeSubscription(subId).catch(() => {});
       throw error;
     }
-    await ready;
 
     return async () => {
       const active = this.subscriptions.get(subId);
@@ -877,6 +863,11 @@ export class RelayClient {
       return;
     }
 
+    if (subscription.mode === "first") {
+      subscription.onEvent(event);
+      return;
+    }
+
     if (!prepareSubscriptionEvent(subscription, event)) return;
     this.eventBuffer.push({ subId, event });
     this.flushTimeout ??= window.setTimeout(
@@ -1068,15 +1059,22 @@ export class RelayClient {
     }
 
     for (const [subId, subscription] of this.subscriptions) {
-      if (subscription.mode === "history") {
+      if (subscription.mode !== "live") {
         window.clearTimeout(subscription.timeout);
         subscription.reject(error);
         this.subscriptions.delete(subId);
         continue;
       }
 
-      subscription.resolveReady?.();
-      subscription.resolveReady = undefined;
+      if (subscription.requireEose && options?.reconnect === false) {
+        subscription.rejectReady?.(error);
+        subscription.resolveReady = undefined;
+        subscription.rejectReady = undefined;
+      } else if (!subscription.requireEose) {
+        subscription.resolveReady?.();
+        subscription.resolveReady = undefined;
+        subscription.rejectReady = undefined;
+      }
       clearClosedRetry(subscription);
     }
 

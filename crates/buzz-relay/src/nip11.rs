@@ -19,6 +19,27 @@ pub(crate) const SUPPORTED_NIPS: &[u32] = &[1, 2, 10, 11, 16, 17, 23, 25, 29, 33
 /// stable signing key — both are required for kind 13534/8000/8001 events
 /// to be verifiable by clients.
 pub(crate) const NIP_RELAY_MEMBERSHIP: u32 = 43;
+const COS_FOLLOW_UP_AUTHORITY_SCHEMA: &str = "mac-workspace/cos-follow-up-authority/v1";
+const COS_FOLLOW_UP_CHANNEL_MAPPING: &str = "signed-item-h-p-v1";
+
+/// Relay-configured authority for the COS follow-up extension.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CosFollowUpAuthority {
+    /// Descriptor schema.
+    pub schema: String,
+    /// Exact bridge pubkey accepted at relay ingest.
+    pub bridge_pubkey: String,
+    /// The bridge-signed item `h` + `p` tags bind channel to assignee.
+    pub channel_mapping: String,
+}
+
+fn cos_follow_up_authority(bridge_pubkey: Option<&str>) -> Option<CosFollowUpAuthority> {
+    bridge_pubkey.map(|bridge_pubkey| CosFollowUpAuthority {
+        schema: COS_FOLLOW_UP_AUTHORITY_SCHEMA.to_string(),
+        bridge_pubkey: bridge_pubkey.to_string(),
+        channel_mapping: COS_FOLLOW_UP_CHANNEL_MAPPING.to_string(),
+    })
+}
 
 /// Relay information document served at `GET /` with `Accept: application/nostr+json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +76,9 @@ pub struct RelayInfo {
     /// Relay's own signing pubkey (NIP-11 `self` field, NIP-43).
     #[serde(rename = "self", skip_serializing_if = "Option::is_none")]
     pub relay_self: Option<String>,
+    /// COS follow-up authority. Omitted when the feature is disabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cos_follow_up: Option<CosFollowUpAuthority>,
 }
 
 /// Protocol and resource limits advertised in the NIP-11 document.
@@ -164,6 +188,7 @@ impl RelayInfo {
             limitation: Some(relay_limitation(max_message_length)),
             pairing_relay_url: pairing_relay_url.map(str::to_string),
             relay_self: relay_self.map(|s| s.to_string()),
+            cos_follow_up: None,
         }
     }
 }
@@ -242,6 +267,13 @@ pub(crate) async fn nip11_document(state: &crate::state::AppState, raw_host: &st
         state.config.max_frame_bytes,
         state.config.pairing_relay_url.as_deref(),
     );
+    info.cos_follow_up =
+        cos_follow_up_authority(state.config.cos_follow_up_bridge_pubkey.as_deref());
+    if info.cos_follow_up.is_some() {
+        info.supported_extensions
+            .get_or_insert_with(Vec::new)
+            .push(COS_FOLLOW_UP_AUTHORITY_SCHEMA.to_string());
+    }
     let tenant_host = if state.config.push_gateway_delivery_url.is_some() {
         crate::tenant::bind_community(&state.db, raw_host)
             .await
@@ -388,6 +420,21 @@ mod tests {
     fn build_advertises_buzz_repository_url() {
         let info = RelayInfo::build(None, None, false, DEFAULT_MAX_FRAME_BYTES, None);
         assert_eq!(info.software, "https://github.com/block/buzz");
+    }
+
+    #[test]
+    fn cos_follow_up_authority_descriptor_is_exact_and_absent_when_disabled() {
+        assert!(cos_follow_up_authority(None).is_none());
+        let bridge = "a".repeat(64);
+        let descriptor = cos_follow_up_authority(Some(&bridge)).expect("configured authority");
+        assert_eq!(
+            descriptor,
+            CosFollowUpAuthority {
+                schema: "mac-workspace/cos-follow-up-authority/v1".to_string(),
+                bridge_pubkey: bridge,
+                channel_mapping: "signed-item-h-p-v1".to_string(),
+            }
+        );
     }
 
     #[test]

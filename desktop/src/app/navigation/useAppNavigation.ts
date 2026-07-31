@@ -57,6 +57,17 @@ export function useAppNavigation() {
     [commitNavigation],
   );
 
+  const goToday = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/today",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
   const goAgents = React.useCallback(
     (behavior?: NavigationBehavior) =>
       commitNavigation(
@@ -84,6 +95,39 @@ export function useAppNavigation() {
       commitNavigation(
         {
           to: "/projects",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
+  const goRunningOrder = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/running-order",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
+  const goControlRoom = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/control-room",
+        },
+        behavior,
+      ),
+    [commitNavigation],
+  );
+
+  const goMyActions = React.useCallback(
+    (behavior?: NavigationBehavior) =>
+      commitNavigation(
+        {
+          to: "/my-actions",
         },
         behavior,
       ),
@@ -297,13 +341,17 @@ export function useAppNavigation() {
     closeWorkflowDetail,
     goAgents,
     goChannel,
+    goControlRoom,
     goForumPost,
     goHome,
+    goMyActions,
     goNewMessage,
     goProject,
     goProjects,
     goPulse,
+    goRunningOrder,
     goSettings,
+    goToday,
     goWorkflow,
     goWorkflows,
     openSearchHit,

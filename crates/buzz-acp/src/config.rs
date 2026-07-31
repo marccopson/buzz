@@ -4,6 +4,8 @@
 //! Config file (TOML) for complex subscription rules.
 
 use std::collections::{HashMap, HashSet};
+use std::fs::OpenOptions;
+use std::io::Read;
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -240,8 +242,17 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_RELAY_URL", default_value = "ws://localhost:3000")]
     pub relay_url: String,
 
-    #[arg(long, env = "BUZZ_PRIVATE_KEY")]
-    pub private_key: String,
+    /// Agent Nostr private key. Prefer `--private-key-file` for services.
+    #[arg(long, env = "BUZZ_PRIVATE_KEY", conflicts_with = "private_key_file")]
+    pub private_key: Option<String>,
+
+    /// Protected regular file containing exactly one agent Nostr private key.
+    ///
+    /// systemd services should supply this through `LoadCredential=` and
+    /// `BUZZ_PRIVATE_KEY_FILE=%d/<credential>`, never as a secret-valued
+    /// environment variable.
+    #[arg(long, env = "BUZZ_PRIVATE_KEY_FILE", conflicts_with = "private_key")]
+    pub private_key_file: Option<PathBuf>,
 
     /// Agent owner pubkey (64-char hex). Used for --respond-to=owner-only gate.
     #[arg(long, env = "BUZZ_ACP_AGENT_OWNER")]
@@ -423,6 +434,12 @@ pub struct CliArgs {
     #[arg(long, env = "BUZZ_ACP_MODEL")]
     pub model: Option<String>,
 
+    /// Title for the agent's ACP sessions, passed out-of-band in `session/new`
+    /// `_meta`. Adapters that recognize it name the session after this value;
+    /// others ignore it. Never enters the prompt.
+    #[arg(long, env = "BUZZ_ACP_SESSION_TITLE")]
+    pub session_title: Option<String>,
+
     /// Permission mode for agents that support `session/set_config_option`
     /// with `configId: "mode"` (e.g. `claude-agent-acp`).
     ///
@@ -485,6 +502,9 @@ pub struct ChannelFilter {
 #[derive(Debug)]
 pub struct Config {
     pub keys: Keys,
+    /// True when the key was loaded from a protected file and must remain
+    /// harness-only rather than entering any descendant process contract.
+    pub private_key_file_backed: bool,
     pub relay_url: String,
     pub agent_command: String,
     pub agent_args: Vec<String>,
@@ -522,6 +542,9 @@ pub struct Config {
     pub memory_enabled: bool,
     /// Desired LLM model ID. Applied after every `session_new_full()`.
     pub model: Option<String>,
+    /// Sanitized session title, sent as `_meta.sessionTitle` on `session/new`.
+    /// `None` when unset or when the configured value sanitized to empty.
+    pub session_title: Option<String>,
     /// Permission mode to apply after session creation. `Default` = skip.
     pub permission_mode: PermissionMode,
     /// Inbound author gate mode.
@@ -552,6 +575,68 @@ pub struct Config {
     /// `from_cli()`. `None` when using the compiled-in default or when
     /// `--no-base-prompt` is set.
     pub base_prompt_content: Option<String>,
+}
+
+/// Maximum length, in characters, of a session title sent to the adapter.
+const SESSION_TITLE_MAX_CHARS: usize = 80;
+
+/// Normalize a configured session title into something safe to hand an adapter.
+///
+/// Control characters are dropped, runs of whitespace collapse to a single
+/// space, and the result is trimmed and capped at
+/// [`SESSION_TITLE_MAX_CHARS`]. Returns `None` when nothing printable is left.
+///
+/// Buzz is the only guard here: Codex's own `normalize_thread_name` merely
+/// trims, so an unbounded display name would be persisted verbatim into its
+/// thread store.
+fn sanitize_session_title(raw: &str) -> Option<String> {
+    let collapsed = raw
+        .split_whitespace()
+        .map(|word| word.chars().filter(|c| !c.is_control()).collect::<String>())
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    // Truncate by chars, not bytes, so a multi-byte name can't be cut mid-UTF-8.
+    let title: String = collapsed
+        .chars()
+        .take(SESSION_TITLE_MAX_CHARS)
+        .collect::<String>()
+        .trim_end()
+        .to_string();
+    if title.is_empty() {
+        None
+    } else {
+        Some(title)
+    }
+}
+
+/// Separator between the agent name and the channel in a composed title.
+/// U+00B7 MIDDLE DOT, spaces on both sides.
+const SESSION_TITLE_SEPARATOR: &str = " · ";
+
+/// Compose a per-session title as `Agent · #channel`.
+///
+/// One agent in five channels gets five sessions; a bare agent name would show
+/// five identical rows in the adapter's thread list. Only the channel part is
+/// truncated to fit [`SESSION_TITLE_MAX_CHARS`], so the agent name always
+/// survives. Returns the bare agent name when there is no channel, the channel
+/// name is blank, or no room is left for it.
+pub(crate) fn compose_session_title(agent: &str, channel_name: Option<&str>) -> String {
+    let Some(channel) = channel_name.and_then(sanitize_session_title) else {
+        return agent.to_string();
+    };
+    // Reserve the separator and the `#` sigil alongside the agent name.
+    let reserved = agent.chars().count() + SESSION_TITLE_SEPARATOR.chars().count() + 1;
+    let channel: String = channel
+        .chars()
+        .take(SESSION_TITLE_MAX_CHARS.saturating_sub(reserved))
+        .collect::<String>()
+        .trim_end()
+        .to_string();
+    if channel.is_empty() {
+        return agent.to_string();
+    }
+    format!("{agent}{SESSION_TITLE_SEPARATOR}#{channel}")
 }
 
 /// Validate and deduplicate allowlist entries: each must be exactly 64 hex chars.
@@ -725,6 +810,80 @@ pub fn propagate_legacy_env_vars() {
     }
 }
 
+const MAX_PRIVATE_KEY_FILE_BYTES: u64 = 512;
+
+fn read_private_key_file(path: &std::path::Path) -> Result<String, ConfigError> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+    }
+    let mut file = options
+        .open(path)
+        .map_err(|_| ConfigError::ConfigFile("private key file is missing or unsafe".into()))?;
+    let metadata = file
+        .metadata()
+        .map_err(|_| ConfigError::ConfigFile("private key file metadata is unavailable".into()))?;
+    if !metadata.is_file() || metadata.len() > MAX_PRIVATE_KEY_FILE_BYTES {
+        return Err(ConfigError::ConfigFile(
+            "private key file must be a bounded regular file".into(),
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+
+        let mode = metadata.mode() & 0o777;
+        // Credentials may be owner-only (systemd's read-only credential copy)
+        // or root:<service-group> readable. World access and group/other write
+        // access are always rejected.
+        if mode & 0o007 != 0 || mode & 0o022 != 0 {
+            return Err(ConfigError::ConfigFile(
+                "private key file permissions are unsafe".into(),
+            ));
+        }
+        let effective_uid = nix::unistd::geteuid().as_raw();
+        let effective_gid = nix::unistd::getegid().as_raw();
+        if metadata.uid() != 0 && metadata.uid() != effective_uid {
+            return Err(ConfigError::ConfigFile(
+                "private key file owner is unsafe".into(),
+            ));
+        }
+        if mode & 0o040 != 0 && metadata.uid() != effective_uid && metadata.gid() != effective_gid {
+            return Err(ConfigError::ConfigFile(
+                "private key file group is unsafe".into(),
+            ));
+        }
+    }
+
+    let mut payload = Vec::with_capacity(metadata.len() as usize);
+    file.by_ref()
+        .take(MAX_PRIVATE_KEY_FILE_BYTES + 1)
+        .read_to_end(&mut payload)
+        .map_err(|_| ConfigError::ConfigFile("private key file could not be read".into()))?;
+    if payload.len() as u64 > MAX_PRIVATE_KEY_FILE_BYTES {
+        return Err(ConfigError::ConfigFile(
+            "private key file exceeds the size limit".into(),
+        ));
+    }
+    let text = std::str::from_utf8(&payload)
+        .map_err(|_| ConfigError::ConfigFile("private key file must be UTF-8".into()))?;
+    let line = text.strip_suffix('\n').unwrap_or(text);
+    let line = line.strip_suffix('\r').unwrap_or(line);
+    if line.is_empty()
+        || line.bytes().any(|byte| byte.is_ascii_whitespace())
+        || line.contains('\n')
+        || line.contains('\r')
+    {
+        return Err(ConfigError::ConfigFile(
+            "private key file must contain exactly one key".into(),
+        ));
+    }
+    Ok(line.to_owned())
+}
+
 impl Config {
     pub fn from_cli() -> Result<Self, ConfigError> {
         // Legacy env-var propagation is intentionally NOT done here.
@@ -738,13 +897,29 @@ impl Config {
     /// tests can construct `CliArgs` via `CliArgs::try_parse_from` and exercise the full
     /// validation path without going through process args.
     pub fn from_args(mut args: CliArgs) -> Result<Self, ConfigError> {
-        let keys = Keys::parse(&args.private_key)?;
+        let private_key_file_backed = args.private_key_file.is_some();
+        let mut private_key = match (args.private_key.take(), args.private_key_file.as_ref()) {
+            (Some(value), None) => value,
+            (None, Some(path)) => read_private_key_file(path)?,
+            (Some(mut value), Some(_)) => {
+                value.replace_range(.., &"0".repeat(value.len()));
+                value.clear();
+                return Err(ConfigError::ConfigFile(
+                    "configure exactly one of BUZZ_PRIVATE_KEY or BUZZ_PRIVATE_KEY_FILE".into(),
+                ));
+            }
+            (None, None) => {
+                return Err(ConfigError::ConfigFile(
+                    "configure exactly one of BUZZ_PRIVATE_KEY or BUZZ_PRIVATE_KEY_FILE".into(),
+                ));
+            }
+        };
+        let keys = Keys::parse(&private_key)?;
         // Best-effort zeroize: overwrite the raw private key string to reduce
         // exposure via core dumps or heap inspection (#41). Without the `zeroize`
         // crate we can only clear the String — the allocator may retain copies.
-        args.private_key
-            .replace_range(.., &"0".repeat(args.private_key.len()));
-        args.private_key.clear();
+        private_key.replace_range(.., &"0".repeat(private_key.len()));
+        private_key.clear();
 
         let system_prompt = if let Some(text) = args.system_prompt {
             Some(text)
@@ -960,6 +1135,7 @@ impl Config {
 
         let config = Config {
             keys,
+            private_key_file_backed,
             relay_url: args.relay_url,
             agent_command,
             agent_args,
@@ -992,6 +1168,10 @@ impl Config {
             typing_enabled: !args.no_typing,
             memory_enabled: args.memory && !args.no_memory,
             model,
+            session_title: args
+                .session_title
+                .as_deref()
+                .and_then(sanitize_session_title),
             permission_mode: args.permission_mode,
             respond_to: args.respond_to,
             respond_to_allowlist,
@@ -1334,6 +1514,7 @@ mod tests {
     fn test_config(mode: SubscribeMode) -> Config {
         Config {
             keys: nostr::Keys::generate(),
+            private_key_file_backed: false,
             relay_url: "ws://localhost:3000".into(),
             agent_command: "goose".into(),
             agent_args: vec!["acp".into()],
@@ -1361,6 +1542,7 @@ mod tests {
             typing_enabled: true,
             memory_enabled: true,
             model: None,
+            session_title: None,
             permission_mode: PermissionMode::BypassPermissions,
             respond_to: RespondTo::Anyone,
             respond_to_allowlist: HashSet::new(),
@@ -2584,6 +2766,122 @@ channels = "ALL"
     const TEST_PRIVATE_KEY: &str =
         "0000000000000000000000000000000000000000000000000000000000000001";
 
+    #[cfg(unix)]
+    fn private_key_test_dir() -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "buzz-acp-private-key-file-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir(&path).expect("create private-key test directory");
+        path
+    }
+
+    #[cfg(unix)]
+    fn write_private_key_test_file(
+        directory: &std::path::Path,
+        name: &str,
+        value: &str,
+        mode: u32,
+    ) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = directory.join(name);
+        std::fs::write(&path, value).expect("write private-key test file");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode))
+            .expect("set private-key test permissions");
+        path
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_key_file_full_path_accepts_protected_regular_file() {
+        let directory = private_key_test_dir();
+        let path = write_private_key_test_file(
+            &directory,
+            "identity",
+            &format!("{TEST_PRIVATE_KEY}\n"),
+            0o600,
+        );
+        let args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key-file",
+            path.to_str().expect("UTF-8 test path"),
+        ])
+        .expect("clap should parse a file-backed identity");
+        let config = Config::from_args(args).expect("protected key file should load");
+        assert!(config.private_key_file_backed);
+        assert_eq!(
+            config.keys.public_key(),
+            Keys::parse(TEST_PRIVATE_KEY)
+                .expect("valid test key")
+                .public_key()
+        );
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_key_file_rejects_unsafe_missing_symlink_and_non_regular_sources() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+
+        let directory = private_key_test_dir();
+        let safe = write_private_key_test_file(
+            &directory,
+            "safe",
+            &format!("{TEST_PRIVATE_KEY}\n"),
+            0o600,
+        );
+        let unsafe_file = write_private_key_test_file(
+            &directory,
+            "unsafe",
+            &format!("{TEST_PRIVATE_KEY}\n"),
+            0o644,
+        );
+        let linked = directory.join("linked");
+        symlink(&safe, &linked).expect("create test symlink");
+        let non_regular = directory.join("directory");
+        std::fs::create_dir(&non_regular).expect("create non-regular source");
+        std::fs::set_permissions(&non_regular, std::fs::Permissions::from_mode(0o700))
+            .expect("set directory permissions");
+        let missing = directory.join("missing");
+
+        for path in [&unsafe_file, &linked, &non_regular, &missing] {
+            let args = CliArgs::try_parse_from([
+                "buzz-acp",
+                "--private-key-file",
+                path.to_str().expect("UTF-8 test path"),
+            ])
+            .expect("clap should parse path before file validation");
+            assert!(
+                Config::from_args(args).is_err(),
+                "unsafe private-key source was accepted"
+            );
+        }
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn private_key_file_rejects_simultaneous_value_without_disclosing_it() {
+        let directory = private_key_test_dir();
+        let path = write_private_key_test_file(
+            &directory,
+            "identity",
+            &format!("{TEST_PRIVATE_KEY}\n"),
+            0o600,
+        );
+        let mut args = CliArgs::try_parse_from([
+            "buzz-acp",
+            "--private-key-file",
+            path.to_str().expect("UTF-8 test path"),
+        ])
+        .expect("clap should parse file source");
+        args.private_key = Some(TEST_PRIVATE_KEY.to_string());
+        let error = Config::from_args(args).expect_err("ambiguous key sources must fail");
+        assert!(!error.to_string().contains(TEST_PRIVATE_KEY));
+        std::fs::remove_dir_all(directory).ok();
+    }
+
     #[test]
     fn allowed_respond_to_full_path_rejects_disallowed_mode() {
         // --allowed-respond-to=owner-only,allowlist + --respond-to=anyone → ConfigError
@@ -2705,5 +3003,64 @@ channels = "ALL"
         const {
             assert!(MAX_TURN_DURATION_CEILING_SECS < u64::MAX - 100);
         }
+    }
+
+    #[test]
+    fn sanitize_session_title_collapses_whitespace_and_strips_control_chars() {
+        assert_eq!(
+            sanitize_session_title("  Fizz\t\tthe\n Bot\u{7}  "),
+            Some("Fizz the Bot".to_string())
+        );
+    }
+
+    #[test]
+    fn sanitize_session_title_returns_none_when_nothing_printable_remains() {
+        assert_eq!(sanitize_session_title("   \n\t "), None);
+        assert_eq!(sanitize_session_title(""), None);
+        assert_eq!(sanitize_session_title("\u{1}\u{2}"), None);
+    }
+
+    #[test]
+    fn sanitize_session_title_caps_length_without_splitting_multibyte_chars() {
+        let raw = "\u{1f41d}".repeat(SESSION_TITLE_MAX_CHARS + 10);
+        let title = sanitize_session_title(&raw).expect("emoji title survives sanitizing");
+        assert_eq!(title.chars().count(), SESSION_TITLE_MAX_CHARS);
+        assert!(title.chars().all(|c| c == '\u{1f41d}'));
+    }
+
+    #[test]
+    fn sanitize_session_title_does_not_leave_a_trailing_space_after_the_cap() {
+        // The cap lands mid-word, so trimming must not leave a dangling space.
+        let raw = format!("{} tail", "a".repeat(SESSION_TITLE_MAX_CHARS - 1));
+        let title = sanitize_session_title(&raw).expect("title survives sanitizing");
+        assert_eq!(title, "a".repeat(SESSION_TITLE_MAX_CHARS - 1));
+    }
+
+    #[test]
+    fn compose_session_title_qualifies_the_agent_name_with_the_channel() {
+        assert_eq!(
+            compose_session_title("Fizz", Some("buzz-dev")),
+            "Fizz · #buzz-dev"
+        );
+    }
+
+    #[test]
+    fn compose_session_title_falls_back_to_bare_agent_name_without_a_channel() {
+        assert_eq!(compose_session_title("Fizz", None), "Fizz");
+        assert_eq!(compose_session_title("Fizz", Some("   ")), "Fizz");
+    }
+
+    #[test]
+    fn compose_session_title_truncates_the_channel_and_keeps_the_agent_name() {
+        let channel = "c".repeat(200);
+        let title = compose_session_title("Fizz", Some(&channel));
+        assert_eq!(title.chars().count(), SESSION_TITLE_MAX_CHARS);
+        assert!(title.starts_with("Fizz · #c"));
+    }
+
+    #[test]
+    fn compose_session_title_drops_the_channel_when_the_agent_name_fills_the_cap() {
+        let agent = "a".repeat(SESSION_TITLE_MAX_CHARS);
+        assert_eq!(compose_session_title(&agent, Some("buzz-dev")), agent);
     }
 }

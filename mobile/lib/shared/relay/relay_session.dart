@@ -213,6 +213,22 @@ class RelaySessionNotifier extends Notifier<SessionState> {
     NostrFilter filter,
     void Function(NostrEvent) onEvent, {
     void Function(String message)? onClosed,
+  }) => _subscribe(filter, onEvent, onClosed: onClosed, requireEose: false);
+
+  /// Subscribe to live events and fail closed unless the relay acknowledges
+  /// registration with EOSE. Use this when a history reconciliation must not
+  /// run until the live fence is definitely active.
+  Future<void Function()> subscribeAfterEose(
+    NostrFilter filter,
+    void Function(NostrEvent) onEvent, {
+    void Function(String message)? onClosed,
+  }) => _subscribe(filter, onEvent, onClosed: onClosed, requireEose: true);
+
+  Future<void Function()> _subscribe(
+    NostrFilter filter,
+    void Function(NostrEvent) onEvent, {
+    required bool requireEose,
+    void Function(String message)? onClosed,
   }) async {
     final subId = _nextSubId('l');
     final readyCompleter = Completer<void>();
@@ -226,15 +242,25 @@ class RelaySessionNotifier extends Notifier<SessionState> {
 
     _sendReq(subId, filter);
 
-    // Wait for EOSE or a short fallback timeout.
+    // Most callers retain the compatibility fallback for relays that omit
+    // EOSE. Race-sensitive consumers can require the acknowledgement.
     try {
       await readyCompleter.future.timeout(
-        const Duration(milliseconds: 500),
-        onTimeout: () {},
+        requireEose
+            ? const Duration(seconds: 8)
+            : const Duration(milliseconds: 500),
+        onTimeout: () {
+          if (requireEose) {
+            throw TimeoutException(
+              'Relay did not acknowledge the live subscription.',
+            );
+          }
+        },
       );
     } catch (_) {
       _liveSubscriptions.remove(subId);
       _recentDeliveryKeys.removeWhere((key) => key.startsWith('$subId:'));
+      _sendClose(subId);
       rethrow;
     }
     final liveSub = _liveSubscriptions[subId];

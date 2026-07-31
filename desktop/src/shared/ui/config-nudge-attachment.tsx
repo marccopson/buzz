@@ -37,6 +37,8 @@ function requirementKey(
       return `cli_config_invalid:${req.probe_args.join(",")}:${index}`;
     case "git_bash":
       return `git_bash:${index}`;
+    case "missing_binary":
+      return `missing_binary:${req.command}:${index}`;
   }
 }
 
@@ -280,7 +282,7 @@ export function ConfigNudgeCard({
         <AttachmentTrigger
           aria-label={
             opensDoctor
-              ? `Open Agent runtimes settings for ${nudge.agent_name}`
+              ? `Open Agent runtimes for ${nudge.agent_name}`
               : `Open Edit Agent for ${nudge.agent_name}`
           }
           onClick={handleOpen}
@@ -381,9 +383,23 @@ function RequirementRow({
           </span>
         </div>
       );
+    case "missing_binary": {
+      // Missing-binary rows are purely informational — the user must install the
+      // binary or update their PATH. No in-app action can fix this.
+      return (
+        <div className="flex items-center gap-2 text-xs leading-4 text-muted-foreground">
+          <span className="flex-1 [overflow-wrap:anywhere]">
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs text-foreground">
+              {requirement.command}
+            </code>{" "}
+            not found in PATH — install it or check your PATH settings
+          </span>
+        </div>
+      );
+    }
     case "cli_config_invalid": {
       // Config-invalid rows are purely informational — the user must edit an
-      // external file. No Agent runtimes CTA (Buzz can't repair ~/.codex/config.toml)
+      // external file. No Agent runtimes CTA (MAC Workspace can't repair ~/.codex/config.toml)
       // and no Edit Agent CTA (the field isn't managed by Buzz).
       const cli = requirement.probe_args[0] ?? "the CLI";
       const configFile = `~/.${cli}/config.toml`;

@@ -46,11 +46,21 @@ type HistorySubscription = {
   timeout: number;
 };
 
+type FirstEventSubscription = {
+  mode: "first";
+  onEvent: (event: RelayEvent) => void;
+  resolve: (event: RelayEvent | null) => void;
+  reject: (error: Error) => void;
+  timeout: number;
+};
+
 type LiveSubscription = {
   mode: "live";
   filter: RelaySubscriptionFilter;
   onEvent: (event: RelayEvent) => void;
+  requireEose?: boolean;
   resolveReady?: () => void;
+  rejectReady?: (error: Error) => void;
   lastSeenCreatedAt?: number;
   closedRetryAttempt?: number;
   closedRetryTimeout?: number;
@@ -63,7 +73,10 @@ export type PendingEvent = {
   timeout: number;
 };
 
-export type RelaySubscription = HistorySubscription | LiveSubscription;
+export type RelaySubscription =
+  | HistorySubscription
+  | FirstEventSubscription
+  | LiveSubscription;
 
 export function sortEvents(events: RelayEvent[]) {
   return [...events].sort((left, right) => {

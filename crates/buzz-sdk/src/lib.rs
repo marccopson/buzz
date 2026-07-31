@@ -13,6 +13,9 @@
 //! No keys are held here. No network calls are made.
 
 pub mod builders;
+pub mod mac_assistant_activation;
+pub mod mac_assistant_bridge_authorisation;
+pub mod mac_assistant_enrolment;
 pub mod mentions;
 pub mod nip_oa;
 

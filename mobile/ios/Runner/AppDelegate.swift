@@ -3,17 +3,55 @@ import Flutter
 import UIKit
 import UserNotifications
 
+typealias FollowUpNotificationScheduler = (
+  UNNotificationRequest,
+  @escaping (Error?) -> Void
+) -> Void
+
+struct FollowUpNotificationSettings {
+  let authorizationStatus: UNAuthorizationStatus
+  let alertSetting: UNNotificationSetting
+
+  var allowsDelivery: Bool {
+    let authorized: Bool
+    switch authorizationStatus {
+    case .authorized, .provisional, .ephemeral:
+      authorized = true
+    case .notDetermined, .denied:
+      authorized = false
+    @unknown default:
+      authorized = false
+    }
+    return authorized && alertSetting == .enabled
+  }
+}
+
+typealias FollowUpNotificationSettingsReader = (
+  @escaping (FollowUpNotificationSettings) -> Void
+) -> Void
+
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
   private var mediaUploadChannel: FlutterMethodChannel?
   private var qrScannerChannel: FlutterMethodChannel?
+  private var followUpNotificationChannel: FlutterMethodChannel?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    UNUserNotificationCenter.current().requestAuthorization(options: [.badge]) { _, _ in }
+    UNUserNotificationCenter.current().requestAuthorization(
+      options: [.alert, .sound, .badge]
+    ) { _, _ in }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  override func userNotificationCenter(
+    _ center: UNUserNotificationCenter,
+    willPresent notification: UNNotification,
+    withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+  ) {
+    completionHandler([.banner, .sound, .badge])
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
@@ -31,6 +69,76 @@ import UserNotifications
     )
     qrScannerChannel?.setMethodCallHandler { call, result in
       Self.handleQrScannerMethodCall(call, result: result)
+    }
+    followUpNotificationChannel = FlutterMethodChannel(
+      name: "buzz/cos_follow_up_notifications",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    followUpNotificationChannel?.setMethodCallHandler { call, result in
+      Self.handleFollowUpNotificationMethodCall(call, result: result)
+    }
+  }
+
+  static func handleFollowUpNotificationMethodCall(
+    _ call: FlutterMethodCall,
+    result: @escaping FlutterResult,
+    settings: FollowUpNotificationSettingsReader = { completion in
+      UNUserNotificationCenter.current().getNotificationSettings { value in
+        completion(
+          FollowUpNotificationSettings(
+            authorizationStatus: value.authorizationStatus,
+            alertSetting: value.alertSetting
+          )
+        )
+      }
+    },
+    schedule: @escaping FollowUpNotificationScheduler = { request, completion in
+      UNUserNotificationCenter.current().add(
+        request,
+        withCompletionHandler: completion
+      )
+    }
+  ) {
+    guard call.method == "show" else {
+      result(FlutterMethodNotImplemented)
+      return
+    }
+    guard
+      let arguments = call.arguments as? [String: Any],
+      let id = arguments["id"] as? String,
+      let title = arguments["title"] as? String,
+      let body = arguments["body"] as? String
+    else {
+      result(
+        FlutterError(
+          code: "invalid_arguments",
+          message: "Expected notification id, title, and body.",
+          details: nil
+        )
+      )
+      return
+    }
+    let content = UNMutableNotificationContent()
+    content.title = title
+    content.body = body
+    content.sound = .default
+    let request = UNNotificationRequest(
+      identifier: id,
+      content: content,
+      trigger: UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+    )
+    settings { current in
+      guard current.allowsDelivery else {
+        DispatchQueue.main.async {
+          result("denied")
+        }
+        return
+      }
+      schedule(request) { error in
+        DispatchQueue.main.async {
+          result(error == nil ? "shown" : "denied")
+        }
+      }
     }
   }
 

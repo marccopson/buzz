@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:app_badge_plus/app_badge_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -11,6 +13,7 @@ import 'features/channels/agent_activity/observer_subscription.dart';
 import 'features/channels/deep_link_dispatcher.dart';
 import 'features/profile/user_status_cache_provider.dart';
 import 'features/profile/settings_profile_header.dart';
+import 'features/cos_follow_up/cos_follow_up_provider.dart';
 import 'features/settings/settings_page.dart';
 import 'shared/auth/auth.dart';
 import 'shared/deeplink/pending_deep_link_provider.dart';
@@ -53,6 +56,14 @@ class App extends HookConsumerWidget {
       ref.watch(observerRelayProvider);
       ref.watch(appLifecycleProvider);
       ref.watch(userStatusCacheProvider);
+      ref.watch(cosFollowUpProvider);
+      ref.listen(appLifecycleProvider, (_, next) {
+        if (next == AppLifecycleState.resumed) {
+          unawaited(
+            ref.read(cosFollowUpProvider.notifier).retryPendingNotifications(),
+          );
+        }
+      });
     }
 
     // Start listening for buzz:// links immediately (even pre-auth) so a
@@ -78,7 +89,7 @@ class App extends HookConsumerWidget {
     });
 
     return MaterialApp(
-      title: 'Buzz',
+      title: 'MAC Workspace',
       theme: AppTheme.light(
         colorScheme: lightScheme,
         topSectionGradient: buzzLightGradient,

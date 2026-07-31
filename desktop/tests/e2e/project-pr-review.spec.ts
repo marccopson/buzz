@@ -960,6 +960,7 @@ test("project branches can be created from the selected remote branch", async ({
   await installMockBridge(page, {
     projectHeadBranch: "master",
     relaySelf: TEST_IDENTITIES.bob.pubkey,
+    relayPrivateKey: TEST_IDENTITIES.bob.privateKey,
   });
   await openBuzzProject(page);
 

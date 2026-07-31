@@ -4,12 +4,16 @@ import type { SearchHit } from "@/shared/api/types";
 
 export type AppView =
   | "home"
+  | "today"
   | "channel"
   | "messages"
   | "agents"
   | "workflows"
   | "pulse"
-  | "projects";
+  | "projects"
+  | "running-order"
+  | "control-room"
+  | "my-actions";
 
 const WINDOW_DRAG_HANDLE_HEIGHT = 44;
 const TAURI_DRAG_REGION_ATTR = "data-tauri-drag-region";
@@ -118,6 +122,13 @@ export function deriveShellRoute(pathname: string): {
     };
   }
 
+  if (pathname === "/today") {
+    return {
+      selectedChannelId: null,
+      selectedView: "today",
+    };
+  }
+
   if (pathname === "/messages/new") {
     return {
       selectedChannelId: null,
@@ -150,6 +161,27 @@ export function deriveShellRoute(pathname: string): {
     return {
       selectedChannelId: null,
       selectedView: "pulse",
+    };
+  }
+
+  if (pathname === "/running-order") {
+    return {
+      selectedChannelId: null,
+      selectedView: "running-order",
+    };
+  }
+
+  if (pathname === "/control-room") {
+    return {
+      selectedChannelId: null,
+      selectedView: "control-room",
+    };
+  }
+
+  if (pathname === "/my-actions") {
+    return {
+      selectedChannelId: null,
+      selectedView: "my-actions",
     };
   }
 

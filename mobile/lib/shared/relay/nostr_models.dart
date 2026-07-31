@@ -18,6 +18,9 @@ abstract final class EventKind {
   static const agentObserverFrame = 24200;
   static const huddleReaction = 24810;
   static const readState = 30078;
+  static const eventReminder = 30300;
+  static const cosFollowUpItem = 37010;
+  static const cosUserContext = 37012;
   static const userStatus = 30315;
   static const dmVisibility = 30622;
   static const streamMessageV2 = 40002;
@@ -34,6 +37,8 @@ abstract final class EventKind {
   static const jobError = 43006;
   static const forumPost = 45001;
   static const forumComment = 45003;
+  static const cosFollowUpCommand = 47010;
+  static const cosFollowUpReceipt = 47011;
   static const huddleStarted = 48100;
   static const huddleParticipantJoined = 48101;
   static const huddleParticipantLeft = 48102;

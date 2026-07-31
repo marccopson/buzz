@@ -125,7 +125,7 @@ pub(crate) fn process_belongs_to_us(_pid: u32) -> bool {
 
 /// The value stamped into the `BUZZ_MANAGED_AGENT` env var of every agent we
 /// spawn, identifying *which* desktop instance owns it. We use the app's bundle
-/// identifier (`xyz.block.buzz.app` for release, `xyz.block.buzz.app.dev`
+/// identifier (`com.macsurfacing.workspace` for release, `com.macsurfacing.workspace.dev`
 /// for `just dev`) because it is stable across restarts — a relaunched dev
 /// instance still recognizes its own previously-spawned agents as reclaimable,
 /// while never matching another instance's (e.g. a dev build never reaps a DMG
@@ -384,6 +384,25 @@ pub(crate) fn valid_agent_runtime_receipt(
     receipt: &super::super::ManagedAgentRuntimeReceipt,
     instance_id: &str,
 ) -> bool {
+    valid_agent_runtime_receipt_with(
+        path,
+        receipt,
+        instance_id,
+        process_is_running,
+        process_has_buzz_marker,
+    )
+}
+
+/// Injectable version of `valid_agent_runtime_receipt` for testing.
+/// `is_running(pid)` and `has_marker(pid, instance_id)` can be substituted by
+/// test doubles without spawning real processes.
+pub(crate) fn valid_agent_runtime_receipt_with(
+    path: &std::path::Path,
+    receipt: &super::super::ManagedAgentRuntimeReceipt,
+    instance_id: &str,
+    is_running: impl Fn(u32) -> bool,
+    has_marker: impl Fn(u32, &str) -> bool,
+) -> bool {
     let Ok(canonical) =
         ManagedAgentRuntimeKey::new(receipt.key.pubkey.clone(), &receipt.key.relay_url)
     else {
@@ -393,9 +412,12 @@ pub(crate) fn valid_agent_runtime_receipt(
         && path.file_name().and_then(|name| name.to_str())
             == Some(&format!("{}.json", receipt.key.runtime_id()))
         && receipt.desktop_instance_id == instance_id
-        && process_is_running(receipt.pid)
-        && process_belongs_to_us(receipt.pid)
-        && process_has_buzz_marker(receipt.pid, &receipt.desktop_instance_id)
+        && is_running(receipt.pid)
+        // Receipts are written by THIS instance at spawn time, so they are
+        // Buzz-owned by construction. Marker-only ownership: custom-harness
+        // binaries (not in KNOWN_AGENT_BINARIES) must not be rejected by a
+        // name gate — see the sweep ownership rule in runtime/orphan_sweep.rs.
+        && has_marker(receipt.pid, &receipt.desktop_instance_id)
 }
 
 pub(super) fn terminate_runtime_receipt_with(

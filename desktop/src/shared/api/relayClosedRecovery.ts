@@ -35,7 +35,7 @@ export function handleRelayClosed({
 }) {
   const subscription = subscriptions.get(subId);
   if (!subscription) return;
-  if (subscription.mode === "history") {
+  if (subscription.mode !== "live") {
     // Classify before rejecting so a `rate-limited:` history CLOSED arms the
     // gate for concurrent ops. A history sub can't be retried (the caller holds
     // the promise), so we still reject immediately after arming.
@@ -73,16 +73,28 @@ function recoverLiveSubscriptionFromClosed({
   message: string;
   sendReq: (subId: string, filter: RelaySubscriptionFilter) => Promise<void>;
 }) {
-  subscription.resolveReady?.();
-  subscription.resolveReady = undefined;
-
   const closedClass = classifyRelayClosed(message);
 
   if (closedClass === "terminal") {
     // Auth/access/filter failure — permanently remove the subscription so it
     // doesn't silently loop.
     subscriptions.delete(subId);
+    if (subscription.requireEose) {
+      subscription.rejectReady?.(
+        new Error(message || "Relay closed the live subscription."),
+      );
+    } else {
+      subscription.resolveReady?.();
+    }
+    subscription.resolveReady = undefined;
+    subscription.rejectReady = undefined;
     return;
+  }
+
+  if (!subscription.requireEose) {
+    subscription.resolveReady?.();
+    subscription.resolveReady = undefined;
+    subscription.rejectReady = undefined;
   }
 
   if (subscription.closedRetryTimeout !== undefined) return;
@@ -133,6 +145,9 @@ export function prepareSubscriptionEvent(
     subscription.events.push(event);
     return false;
   }
+  if (subscription.mode === "first") {
+    return false;
+  }
   subscription.closedRetryAttempt = 0;
   clearClosedRetry(subscription);
   subscription.lastSeenCreatedAt = Math.max(
@@ -156,6 +171,7 @@ export function handleSubscriptionEose({
   if (subscription.mode === "live") {
     subscription.resolveReady?.();
     subscription.resolveReady = undefined;
+    subscription.rejectReady = undefined;
     subscription.closedRetryAttempt = 0;
     clearClosedRetry(subscription);
     return;
@@ -163,5 +179,9 @@ export function handleSubscriptionEose({
   window.clearTimeout(subscription.timeout);
   subscriptions.delete(subId);
   void closeSubscription(subId);
-  subscription.resolve(sortEvents(subscription.events));
+  if (subscription.mode === "first") {
+    subscription.resolve(null);
+  } else {
+    subscription.resolve(sortEvents(subscription.events));
+  }
 }

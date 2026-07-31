@@ -73,3 +73,12 @@ export async function listArchivedIdentities(): Promise<ArchivedIdentitiesSnapsh
     "list_archived_identities",
   );
 }
+
+/**
+ * Read the exact COS follow-up bridge identity advertised by the active
+ * relay's NIP-11 authority descriptor. `null` means the feature is disabled
+ * or the descriptor failed strict validation; callers must fail closed.
+ */
+export async function getCosFollowUpBridgePubkey(): Promise<string | null> {
+  return await invokeTauri<string | null>("get_cos_follow_up_bridge_pubkey");
+}

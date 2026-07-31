@@ -1,7 +1,7 @@
 {
   "name": "buzz",
   "private": true,
-  "version": "0.4.26",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,7 @@
     "lint": "biome lint .",
     "check": "biome check . && pnpm check:file-sizes && pnpm check:px-text && pnpm check:pubkey-truncation",
     "format": "biome format --write .",
-    "test": "node --import ./test-loader.mjs --experimental-strip-types --test 'src/**/*.test.mjs'",
+    "test": "node --import ./test-loader.mjs --experimental-strip-types --test \"src/**/*.test.mjs\"",
     "preview": "vite preview",
     "tauri": "tauri",
     "test:e2e": "pnpm build:e2e && playwright test",
@@ -85,6 +85,7 @@
   },
   "devDependencies": {
     "@noble/hashes": "^2.0.1",
+    "@noble/curves": "^2.0.1",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.3.0",
     "@tanstack/router-plugin": "^1.167.12",

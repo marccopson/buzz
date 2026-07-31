@@ -67,6 +67,7 @@ export function IdentityKeyHelpDialog() {
       <DialogContent
         className="buzz-onboarding-neutral-theme max-w-[47.5rem] -translate-y-5"
         closeButtonClassName={ONBOARDING_INK_ICON_CLASS}
+        data-system-color-scheme="light"
         data-testid="identity-key-help-dialog"
         overlayVariant="transparent"
         surface="textured"
@@ -81,18 +82,19 @@ export function IdentityKeyHelpDialog() {
           >
             <div>
               <p>
-                Buzz uses an identity key instead of a traditional account. It’s
-                created on your device and represents you whenever you use Buzz.
+                MAC Workspace uses an identity key instead of a traditional
+                account. It’s created on your device and represents you whenever
+                you use MAC Workspace.
               </p>
               <p>
-                Your identity belongs to you, not Buzz. There’s no password to
-                reset, and Buzz can’t recover your key if you lose it. Keep a
-                backup somewhere safe and never share it. Anyone with your key
-                can act as you.
+                Your identity belongs to you, not MAC Workspace. There’s no
+                password to reset, and MAC Workspace can’t recover your key if
+                you lose it. Keep a backup somewhere safe and never share it.
+                Anyone with your key can act as you.
               </p>
               <p>
-                If you’re new to Buzz, create a new identity key. If you already
-                have a Nostr identity, use your existing key.
+                If you’re new to MAC Workspace, create a new identity key. If
+                you already have a Nostr identity, use your existing key.
               </p>
             </div>
           </DialogDescription>

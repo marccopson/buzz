@@ -64,6 +64,14 @@ pub struct Config {
     /// pod is only 4 — small enough that rate-limit checks, presence, and
     /// pub/sub publishes queue behind each other under load.
     pub redis_pool_size: usize,
+    /// Maximum connections in the Postgres writer/reader pools. Defaults to 50.
+    ///
+    /// The `buzz-db` default of 20 was sized for a handful of pods against
+    /// `max_connections=100`. Against Aurora (~5,000 connections) that cap
+    /// is the binding constraint: a burst of concurrent handlers exhausts
+    /// the per-pod pool and requests fail on acquire timeout while the
+    /// database sits idle.
+    pub db_pool_size: u32,
     /// Public WebSocket URL of this relay, advertised in NIP-11.
     pub relay_url: String,
     /// Public WebSocket URL of the dedicated device-pairing relay, when configured.
@@ -168,6 +176,13 @@ pub struct Config {
     /// hex pubkeys. Invalid entries are rejected at startup (config error), not
     /// skipped — a typo must not silently disable an operator.
     pub relay_operator_pubkeys: Vec<String>,
+
+    /// Exact bridge identity trusted to author Contractor OS follow-up state.
+    ///
+    /// Unset disables the feature and all COS follow-up ingest fails closed.
+    /// Set via `BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY` as a valid lowercase
+    /// 64-hex Nostr x-only public key.
+    pub cos_follow_up_bridge_pubkey: Option<String>,
 
     /// Allow NIP-OA owner attestation for relay membership.
     ///
@@ -424,6 +439,12 @@ impl Config {
             .filter(|&v| v > 0)
             .unwrap_or(16);
 
+        let db_pool_size = std::env::var("BUZZ_DB_POOL_SIZE")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(|&v| v > 0)
+            .unwrap_or(50);
+
         let relay_url =
             std::env::var("RELAY_URL").unwrap_or_else(|_| "ws://localhost:3000".to_string());
 
@@ -580,6 +601,32 @@ impl Config {
                     .to_string(),
             ));
         }
+
+        let cos_follow_up_bridge_pubkey = match std::env::var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY") {
+            Ok(raw) => {
+                if raw.is_empty()
+                    || raw.len() != 64
+                    || !raw
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    || nostr::PublicKey::from_hex(&raw)
+                        .and_then(|pubkey| pubkey.xonly())
+                        .is_err()
+                {
+                    return Err(ConfigError::InvalidValue(
+                            "BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY must be a valid Nostr x-only public key encoded as exactly 64 lowercase hex characters"
+                                .to_string(),
+                        ));
+                }
+                Some(raw)
+            }
+            Err(std::env::VarError::NotPresent) => None,
+            Err(std::env::VarError::NotUnicode(_)) => {
+                return Err(ConfigError::InvalidValue(
+                    "BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY must be valid UTF-8".to_string(),
+                ));
+            }
+        };
 
         let auth = buzz_auth::AuthConfig {
             rate_limits: rate_limit_config_from_env()?,
@@ -875,6 +922,7 @@ impl Config {
             read_database_url,
             redis_url,
             redis_pool_size,
+            db_pool_size,
             relay_url,
             pairing_relay_url,
             max_connections,
@@ -897,6 +945,7 @@ impl Config {
             relay_owner_pubkey,
             relay_operator_api_origin,
             relay_operator_pubkeys,
+            cos_follow_up_bridge_pubkey,
             allow_nip_oa_auth,
             media,
             media_max_concurrent_uploads,
@@ -942,6 +991,7 @@ mod tests {
         assert!(!config.database_url.is_empty());
         assert!(!config.redis_url.is_empty());
         assert_eq!(config.redis_pool_size, 16);
+        assert_eq!(config.db_pool_size, 50);
         assert!(config.max_connections > 0);
         assert!(config.send_buffer_size > 0);
         assert_eq!(config.max_frame_bytes, DEFAULT_MAX_FRAME_BYTES);
@@ -1007,6 +1057,31 @@ mod tests {
         assert_eq!(overridden, 32);
         assert_eq!(zero, 16, "zero must fall back to the default");
         assert_eq!(junk, 16, "unparsable value must fall back to the default");
+    }
+
+    #[test]
+    fn db_pool_size_env_override_and_invalid_fallback() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let previous = std::env::var_os("BUZZ_DB_POOL_SIZE");
+
+        std::env::set_var("BUZZ_DB_POOL_SIZE", "80");
+        let overridden = Config::from_env().expect("config").db_pool_size;
+
+        std::env::set_var("BUZZ_DB_POOL_SIZE", "0");
+        let zero = Config::from_env().expect("config").db_pool_size;
+
+        std::env::set_var("BUZZ_DB_POOL_SIZE", "not-a-number");
+        let junk = Config::from_env().expect("config").db_pool_size;
+
+        if let Some(value) = previous {
+            std::env::set_var("BUZZ_DB_POOL_SIZE", value);
+        } else {
+            std::env::remove_var("BUZZ_DB_POOL_SIZE");
+        }
+
+        assert_eq!(overridden, 80);
+        assert_eq!(zero, 50, "zero must fall back to the default");
+        assert_eq!(junk, 50, "unparsable value must fall back to the default");
     }
 
     #[test]
@@ -1171,6 +1246,51 @@ mod tests {
             result,
             Err(ConfigError::InvalidValue(ref msg)) if msg.contains("RELAY_OPERATOR_API_ORIGIN is required")
         ));
+    }
+
+    #[test]
+    fn cos_follow_up_bridge_pubkey_is_optional_but_strict_when_present() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        let previous = std::env::var_os("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY");
+
+        std::env::remove_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY");
+        assert_eq!(
+            Config::from_env()
+                .expect("unset authority is a disabled feature")
+                .cos_follow_up_bridge_pubkey,
+            None
+        );
+
+        let valid_pubkey = "e5ebc6cdb579be112e336cc319b5989b4bb6af11786ea90dbe52b5f08d741b34";
+        std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", valid_pubkey);
+        assert_eq!(
+            Config::from_env()
+                .expect("valid authority")
+                .cos_follow_up_bridge_pubkey
+                .as_deref(),
+            Some(valid_pubkey)
+        );
+
+        for invalid in [
+            String::new(),
+            "abc".to_string(),
+            "A".repeat(64),
+            "g".repeat(64),
+            "f".repeat(64),
+            format!(" {}", "a".repeat(64)),
+        ] {
+            std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", &invalid);
+            assert!(
+                Config::from_env().is_err(),
+                "invalid authority must fail startup: {invalid:?}"
+            );
+        }
+
+        if let Some(value) = previous {
+            std::env::set_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY", value);
+        } else {
+            std::env::remove_var("BUZZ_COS_FOLLOW_UP_BRIDGE_PUBKEY");
+        }
     }
 
     #[test]
