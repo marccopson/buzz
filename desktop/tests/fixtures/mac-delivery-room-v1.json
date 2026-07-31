@@ -1,0 +1,702 @@
+{
+  "deliveryRoom": {
+    "attention": {
+      "blockedOrStalled": {
+        "kind": "blocked_or_stalled",
+        "label": "Blocked or stalled",
+        "workItemIds": ["COS-900"]
+      },
+      "needsManager": {
+        "kind": "needs_manager",
+        "label": "Needs Marc",
+        "workItemIds": ["COS-903"]
+      }
+    },
+    "generatedAt": "2026-07-31T09:00:00.000Z",
+    "schemaVersion": "delivery-room-projection/v1",
+    "sourceGeneratedAt": "2026-07-31T09:00:00.000Z",
+    "stages": [
+      {
+        "label": "Ready",
+        "stage": "ready",
+        "workItemIds": ["COS-900"]
+      },
+      {
+        "label": "Building",
+        "stage": "building",
+        "workItemIds": ["COS-901"]
+      },
+      {
+        "label": "Independent review",
+        "stage": "independent_review",
+        "workItemIds": ["COS-902"]
+      },
+      {
+        "label": "Staging verification",
+        "stage": "staging_verification",
+        "workItemIds": ["COS-903"]
+      },
+      {
+        "label": "Complete",
+        "stage": "complete",
+        "workItemIds": ["COS-904"]
+      }
+    ],
+    "teamTemplates": [
+      {
+        "decisionAuthority": "human",
+        "id": "senior-development-team",
+        "name": "Senior Development Team",
+        "roles": [
+          {
+            "key": "delivery_lead",
+            "label": "Delivery lead",
+            "purpose": "Owns synthesis and delivery clarity.",
+            "required": true
+          },
+          {
+            "key": "builder",
+            "label": "Builder",
+            "purpose": "Implements the bounded change.",
+            "required": true
+          },
+          {
+            "independent": true,
+            "key": "isolated_reviewer",
+            "label": "Isolated reviewer",
+            "purpose": "Reviews independently from the builder.",
+            "required": true
+          },
+          {
+            "independent": true,
+            "key": "deterministic_verification",
+            "label": "Deterministic verification",
+            "purpose": "Supplies reproducible gate evidence.",
+            "required": true
+          }
+        ]
+      },
+      {
+        "decisionAuthority": "human",
+        "id": "planning-council",
+        "name": "Planning Council",
+        "roles": [
+          {
+            "key": "chair_synthesis",
+            "label": "Chair and synthesis",
+            "purpose": "Frames the decision and synthesises advice.",
+            "required": true
+          },
+          {
+            "independent": true,
+            "key": "feasibility_challenge",
+            "label": "Feasibility challenge",
+            "purpose": "Tests execution feasibility and dependencies.",
+            "required": true
+          },
+          {
+            "independent": true,
+            "key": "independent_challenge",
+            "label": "Independent challenge",
+            "purpose": "Challenges assumptions when genuinely available.",
+            "required": false
+          }
+        ]
+      },
+      {
+        "decisionAuthority": "human",
+        "id": "board-of-advisors",
+        "name": "Board of Advisors",
+        "roles": [
+          {
+            "key": "constraint",
+            "label": "Constraint",
+            "purpose": "Identifies the binding constraint.",
+            "required": true
+          },
+          {
+            "key": "commercial_mechanism",
+            "label": "Commercial mechanism",
+            "purpose": "Tests how value is created and captured.",
+            "required": true
+          },
+          {
+            "key": "cash_unit_economics",
+            "label": "Cash and unit economics",
+            "purpose": "Tests cash impact and unit economics.",
+            "required": true
+          },
+          {
+            "key": "execution_ownership",
+            "label": "Execution and ownership",
+            "purpose": "Tests accountable ownership and delivery.",
+            "required": true
+          },
+          {
+            "key": "protection",
+            "label": "Protection",
+            "purpose": "Tests downside, resilience, and defensibility.",
+            "required": true
+          },
+          {
+            "key": "capital_independence",
+            "label": "Capital and independence",
+            "purpose": "Tests capital needs and retained independence.",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "teams": [
+      {
+        "absentOrUnavailable": [
+          {
+            "participantId": "builder",
+            "reason": "Invited, but no evidenced contribution is available.",
+            "state": "unavailable"
+          },
+          {
+            "participantId": "reviewer",
+            "reason": "Invited, but no evidenced contribution is available.",
+            "state": "unavailable"
+          },
+          {
+            "participantId": "marc",
+            "reason": "Invited, but no evidenced contribution is available.",
+            "state": "unavailable"
+          }
+        ],
+        "actualParticipantIds": [],
+        "chairOrLead": {
+          "participantId": "delivery-lead",
+          "role": "Delivery lead"
+        },
+        "contributingParticipantIds": [],
+        "contributions": [],
+        "dissent": [],
+        "id": "senior-development-team",
+        "invitedParticipantIds": ["builder", "reviewer", "marc"],
+        "name": "Senior Development Team",
+        "participants": [
+          {
+            "evidence": [
+              {
+                "detail": "The builder has a current bounded run.",
+                "freshForMs": 3600000,
+                "freshness": "current",
+                "id": "builder-run",
+                "observedAt": "2026-07-31T08:58:00.000Z",
+                "source": {
+                  "kind": "run",
+                  "label": "T3 run",
+                  "reference": "synthetic-build-run"
+                }
+              },
+              {
+                "detail": "Agent operational status is green.",
+                "freshForMs": 900000,
+                "freshness": "current",
+                "id": "agent-health:builder",
+                "observedAt": "2026-07-31T09:00:00.000Z",
+                "source": {
+                  "kind": "status",
+                  "label": "MAC agent health",
+                  "reference": "builder"
+                }
+              }
+            ],
+            "id": "builder",
+            "name": "Builder",
+            "role": "Builder",
+            "state": "working"
+          },
+          {
+            "evidence": [
+              {
+                "detail": "Agent operational status is green.",
+                "freshForMs": 900000,
+                "freshness": "current",
+                "id": "agent-health:reviewer",
+                "observedAt": "2026-07-31T09:00:00.000Z",
+                "source": {
+                  "kind": "status",
+                  "label": "MAC agent health",
+                  "reference": "reviewer"
+                }
+              }
+            ],
+            "id": "reviewer",
+            "name": "Reviewer",
+            "role": "Isolated reviewer",
+            "state": "available"
+          },
+          {
+            "evidence": [
+              {
+                "detail": "Agent operational status is green.",
+                "freshForMs": 900000,
+                "freshness": "current",
+                "id": "agent-health:marc",
+                "observedAt": "2026-07-31T09:00:00.000Z",
+                "source": {
+                  "kind": "status",
+                  "label": "MAC agent health",
+                  "reference": "marc"
+                }
+              }
+            ],
+            "id": "marc",
+            "name": "Marc",
+            "role": "Decision owner",
+            "state": "available"
+          }
+        ],
+        "signOff": {
+          "reason": "No sign-off has been supplied.",
+          "status": "not_signed_off"
+        },
+        "templateId": "senior-development-team"
+      }
+    ],
+    "workItems": [
+      {
+        "currentActivity": "The isolated builder is implementing the signed read-only producer.",
+        "evidence": [
+          {
+            "detail": "Jira status is In Progress.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "jira:COS-901",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "status",
+              "label": "Jira issue",
+              "reference": "COS-901"
+            }
+          },
+          {
+            "detail": "Recorded run state is building.",
+            "freshForMs": 3600000,
+            "freshness": "current",
+            "id": "run:synthetic-build-run",
+            "observedAt": "2026-07-31T08:58:00.000Z",
+            "source": {
+              "kind": "run",
+              "label": "T3 delivery run ledger",
+              "reference": "synthetic-build-run"
+            }
+          }
+        ],
+        "externalReference": {
+          "href": "https://macsurfacing.atlassian.net/browse/COS-901",
+          "key": "COS-901",
+          "label": "Building example"
+        },
+        "health": "on_track",
+        "id": "COS-901",
+        "nextAction": "Finish focused tests and publish a reviewable candidate branch.",
+        "objectiveGates": [],
+        "owner": {
+          "id": "builder",
+          "label": "Builder",
+          "teamId": "senior-development-team",
+          "teamLabel": "Senior Development Team"
+        },
+        "stage": "building",
+        "title": "Build the signed Delivery Room projection",
+        "whyItMatters": "The MAC Workspace clients need compact objective evidence without raw delivery internals."
+      },
+      {
+        "currentActivity": "Independent review, checks and exact staging verification are all explicitly passed.",
+        "evidence": [
+          {
+            "detail": "Jira status is Done.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "jira:COS-904",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "status",
+              "label": "Jira issue",
+              "reference": "COS-904"
+            }
+          },
+          {
+            "detail": "Pull request state is MERGED.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "github-pr:904",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "href": "https://github.com/example/private/pull/904",
+              "kind": "external",
+              "label": "GitHub pull request",
+              "reference": "PR #904"
+            }
+          },
+          {
+            "detail": "Review decision is APPROVED.",
+            "freshForMs": 604800000,
+            "freshness": "current",
+            "gateOutcome": "passed",
+            "id": "github-pr:904:review",
+            "observedAt": "2026-07-31T08:54:00.000Z",
+            "source": {
+              "kind": "review",
+              "label": "GitHub review decision",
+              "reference": "PR #904"
+            }
+          },
+          {
+            "detail": "2 GitHub checks have an explicit passed outcome.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "gateOutcome": "passed",
+            "id": "github-pr:904:checks",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "verification",
+              "label": "GitHub checks",
+              "reference": "PR #904"
+            }
+          },
+          {
+            "detail": "The reconciled delivery evidence matches the live staging revision.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "gateOutcome": "passed",
+            "id": "staging:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "verification",
+              "label": "Live staging revision",
+              "reference": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            }
+          }
+        ],
+        "externalReference": {
+          "href": "https://macsurfacing.atlassian.net/browse/COS-904",
+          "key": "COS-904",
+          "label": "Complete example"
+        },
+        "health": "on_track",
+        "id": "COS-904",
+        "nextAction": "No further delivery action is recorded for this completed item.",
+        "objectiveGates": [
+          {
+            "evidence": {
+              "detail": "Review decision is APPROVED.",
+              "freshForMs": 604800000,
+              "freshness": "current",
+              "gateOutcome": "passed",
+              "id": "github-pr:904:review",
+              "observedAt": "2026-07-31T08:54:00.000Z",
+              "source": {
+                "kind": "review",
+                "label": "GitHub review decision",
+                "reference": "PR #904"
+              }
+            },
+            "id": "review",
+            "label": "Independent review",
+            "requiredEvidenceKind": "review",
+            "status": "passed"
+          },
+          {
+            "evidence": {
+              "detail": "2 GitHub checks have an explicit passed outcome.",
+              "freshForMs": 900000,
+              "freshness": "current",
+              "gateOutcome": "passed",
+              "id": "github-pr:904:checks",
+              "observedAt": "2026-07-31T09:00:00.000Z",
+              "source": {
+                "kind": "verification",
+                "label": "GitHub checks",
+                "reference": "PR #904"
+              }
+            },
+            "id": "checks",
+            "label": "Automated checks",
+            "requiredEvidenceKind": "verification",
+            "status": "passed"
+          },
+          {
+            "evidence": {
+              "detail": "The reconciled delivery evidence matches the live staging revision.",
+              "freshForMs": 900000,
+              "freshness": "current",
+              "gateOutcome": "passed",
+              "id": "staging:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "observedAt": "2026-07-31T09:00:00.000Z",
+              "source": {
+                "kind": "verification",
+                "label": "Live staging revision",
+                "reference": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+              }
+            },
+            "id": "staging",
+            "label": "Staging revision",
+            "requiredEvidenceKind": "verification",
+            "status": "passed"
+          }
+        ],
+        "owner": {
+          "id": "delivery-lead",
+          "label": "Delivery lead",
+          "teamId": "senior-development-team",
+          "teamLabel": "Senior Development Team"
+        },
+        "stage": "complete",
+        "title": "Complete the evidence-backed delivery",
+        "whyItMatters": "Completion must mean every applicable objective gate has current authoritative evidence."
+      },
+      {
+        "currentActivity": "A required delivery prerequisite is explicitly blocked.",
+        "evidence": [
+          {
+            "detail": "Jira status is Selected for Development.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "jira:COS-900",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "external",
+              "label": "Jira issue",
+              "reference": "COS-900"
+            }
+          }
+        ],
+        "externalReference": {
+          "href": "https://macsurfacing.atlassian.net/browse/COS-900",
+          "key": "COS-900",
+          "label": "Ready example"
+        },
+        "health": "stalled",
+        "id": "COS-900",
+        "nextAction": "Resolve the recorded prerequisite before beginning the bounded implementation.",
+        "objectiveGates": [],
+        "owner": {
+          "id": "delivery-lead",
+          "label": "Delivery lead"
+        },
+        "stage": "ready",
+        "title": "Resolve the blocked delivery prerequisite",
+        "whyItMatters": "Managers need a trustworthy view of blocked work before assigning delivery capacity."
+      },
+      {
+        "currentActivity": "An explicit approved review decision is recorded for the candidate.",
+        "evidence": [
+          {
+            "detail": "Jira status is In Review.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "jira:COS-902",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "external",
+              "label": "Jira issue",
+              "reference": "COS-902"
+            }
+          },
+          {
+            "detail": "Pull request state is OPEN.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "github-pr:902",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "href": "https://github.com/example/private/pull/902",
+              "kind": "external",
+              "label": "GitHub pull request",
+              "reference": "PR #902"
+            }
+          },
+          {
+            "detail": "Review decision is APPROVED.",
+            "freshForMs": 604800000,
+            "freshness": "current",
+            "gateOutcome": "passed",
+            "id": "github-pr:902:review",
+            "observedAt": "2026-07-31T08:57:00.000Z",
+            "source": {
+              "kind": "review",
+              "label": "GitHub review decision",
+              "reference": "PR #902"
+            }
+          }
+        ],
+        "externalReference": {
+          "href": "https://macsurfacing.atlassian.net/browse/COS-902",
+          "key": "COS-902",
+          "label": "Independent review example"
+        },
+        "health": "on_track",
+        "id": "COS-902",
+        "nextAction": "Resolve any review findings or advance the exact bytes to staging verification.",
+        "objectiveGates": [
+          {
+            "evidence": {
+              "detail": "Review decision is APPROVED.",
+              "freshForMs": 604800000,
+              "freshness": "current",
+              "gateOutcome": "passed",
+              "id": "github-pr:902:review",
+              "observedAt": "2026-07-31T08:57:00.000Z",
+              "source": {
+                "kind": "review",
+                "label": "GitHub review decision",
+                "reference": "PR #902"
+              }
+            },
+            "id": "review",
+            "label": "Independent review",
+            "requiredEvidenceKind": "review",
+            "status": "passed"
+          }
+        ],
+        "owner": {
+          "id": "reviewer",
+          "label": "Isolated reviewer",
+          "teamId": "senior-development-team",
+          "teamLabel": "Senior Development Team"
+        },
+        "stage": "independent_review",
+        "title": "Review the exact candidate independently",
+        "whyItMatters": "Independent review prevents the builder from marking its own work."
+      },
+      {
+        "currentActivity": "The exact staged revision and deterministic checks are available for verification.",
+        "evidence": [
+          {
+            "detail": "Jira status is In Review.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "jira:COS-903",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "external",
+              "label": "Jira issue",
+              "reference": "COS-903"
+            }
+          },
+          {
+            "detail": "Pull request state is MERGED.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "id": "github-pr:903",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "href": "https://github.com/example/private/pull/903",
+              "kind": "external",
+              "label": "GitHub pull request",
+              "reference": "PR #903"
+            }
+          },
+          {
+            "detail": "1 GitHub checks have an explicit passed outcome.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "gateOutcome": "passed",
+            "id": "github-pr:903:checks",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "verification",
+              "label": "GitHub checks",
+              "reference": "PR #903"
+            }
+          },
+          {
+            "detail": "The reconciled delivery evidence matches the live staging revision.",
+            "freshForMs": 900000,
+            "freshness": "current",
+            "gateOutcome": "passed",
+            "id": "staging:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "observedAt": "2026-07-31T09:00:00.000Z",
+            "source": {
+              "kind": "verification",
+              "label": "Live staging revision",
+              "reference": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ],
+        "externalReference": {
+          "href": "https://macsurfacing.atlassian.net/browse/COS-903",
+          "key": "COS-903",
+          "label": "Staging verification example"
+        },
+        "health": "needs_manager",
+        "id": "COS-903",
+        "nextAction": "Complete the remaining objective verification before declaring delivery complete.",
+        "objectiveGates": [
+          {
+            "evidence": {
+              "detail": "1 GitHub checks have an explicit passed outcome.",
+              "freshForMs": 900000,
+              "freshness": "current",
+              "gateOutcome": "passed",
+              "id": "github-pr:903:checks",
+              "observedAt": "2026-07-31T09:00:00.000Z",
+              "source": {
+                "kind": "verification",
+                "label": "GitHub checks",
+                "reference": "PR #903"
+              }
+            },
+            "id": "checks",
+            "label": "Automated checks",
+            "requiredEvidenceKind": "verification",
+            "status": "passed"
+          },
+          {
+            "evidence": {
+              "detail": "The reconciled delivery evidence matches the live staging revision.",
+              "freshForMs": 900000,
+              "freshness": "current",
+              "gateOutcome": "passed",
+              "id": "staging:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "observedAt": "2026-07-31T09:00:00.000Z",
+              "source": {
+                "kind": "verification",
+                "label": "Live staging revision",
+                "reference": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            "id": "staging",
+            "label": "Staging revision",
+            "requiredEvidenceKind": "verification",
+            "status": "passed"
+          }
+        ],
+        "owner": {
+          "id": "verification",
+          "label": "Deterministic verification",
+          "teamId": "senior-development-team",
+          "teamLabel": "Senior Development Team"
+        },
+        "stage": "staging_verification",
+        "title": "Verify the candidate on staging",
+        "whyItMatters": "The manager view must distinguish merged code from evidence against the live staging revision."
+      }
+    ]
+  },
+  "generatedAt": "2026-07-31T09:00:00.000Z",
+  "generationId": "7c17dc724be05fc449b6786a5b4fd1eae76af4cde1b2ff31ee62eb0148b755a0",
+  "readOnly": true,
+  "schemaVersion": "mac-workspace/delivery-room/v1",
+  "source": {
+    "agentHealth": {
+      "freshness": "current",
+      "observedAt": "2026-07-31T09:00:00.000Z",
+      "sha256": "36abdae00d851682e28acf76b9c1d515c98f6e03a289bbfba26ab7a527d6f437"
+    },
+    "issues": [],
+    "maxAgeSeconds": 900,
+    "reconciliation": {
+      "freshness": "current",
+      "observedAt": "2026-07-31T09:00:00.000Z",
+      "sha256": "bd72725297897fbcc2bf78a48a17e96c0a8a3f7f588708b498abccf58df26ee5"
+    },
+    "status": "fresh"
+  }
+}

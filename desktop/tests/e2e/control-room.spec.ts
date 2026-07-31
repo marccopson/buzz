@@ -27,9 +27,11 @@ const DIMENSIONS = Object.fromEntries(
   ]),
 );
 
+const FRESH_TIMESTAMP = new Date().toISOString();
+
 const HEALTH = {
   schemaVersion: "mac-agent-health/v1",
-  generatedAt: "2026-07-29T06:00:00Z",
+  generatedAt: FRESH_TIMESTAMP,
   authority: {
     id: "brain-vps-health-check",
     role: "authoritative-estate-observer",
@@ -45,13 +47,13 @@ const HEALTH = {
     maxAgeSeconds: 93600,
     estate: {
       path: "/root/MAC-Local/reports/infra-check-latest.md",
-      observedAt: "2026-07-29T06:00:00Z",
+      observedAt: FRESH_TIMESTAMP,
       ageSeconds: 20,
       sha256: "a".repeat(64),
     },
     agents: {
       path: "/root/MAC-Local/reports/mac-workspace-hermes-latest.md",
-      observedAt: "2026-07-29T06:00:00Z",
+      observedAt: FRESH_TIMESTAMP,
       ageSeconds: 20,
       sha256: "b".repeat(64),
     },
@@ -77,7 +79,7 @@ const HEALTH = {
       id: "buzz-runtime",
       name: "Buzz runtime",
       status: "green",
-      detail: "MAC Workspace 0.5.0 is available",
+      detail: "MAC Workspace 0.5.2 is available",
     },
   ],
   issues: [],

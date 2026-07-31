@@ -213,11 +213,11 @@ export function AppSidebarPrimaryMenu({
               data-testid="open-running-order-view"
               isActive={selectedView === "running-order"}
               onClick={onSelectRunningOrder}
-              tooltip="COS Running Order"
+              tooltip="Delivery Room"
               type="button"
             >
               <ListChecks className="h-4 w-4" />
-              <SidebarMenuLabel>COS Running Order</SidebarMenuLabel>
+              <SidebarMenuLabel>Delivery Room</SidebarMenuLabel>
             </SidebarMenuButton>
           </SidebarMenuItem>
         ) : null}

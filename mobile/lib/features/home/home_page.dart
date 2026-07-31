@@ -8,6 +8,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../shared/theme/theme.dart';
+import '../../shared/widgets/mobile_tab_footer_backdrop.dart';
 import '../activity/activity_page.dart';
 import '../channels/channels_page.dart';
 import '../control_room/control_room_page.dart';
@@ -21,12 +22,12 @@ class HomePage extends HookConsumerWidget {
 
   final WidgetBuilder settingsPageBuilder;
 
-  static const double _tabBarHeight = 56;
+  static const double _tabBarHeight = mobileTabBarHeight;
   static const double _tabBarRadius = _tabBarHeight / 2;
   static const double _tabBarInnerInset = Grid.half;
   static const double _selectedTabRadius =
       (_tabBarHeight - (_tabBarInnerInset * 2)) / 2;
-  static const double _tabBarBottomGap = Grid.twelve;
+  static const double _tabBarBottomGap = mobileTabBarBottomGap;
   static const double _tabBarHorizontalMargin = Grid.gutter;
   static const double _tabDestinationHorizontalPadding = Grid.sm;
   static const double _tabIconSize = 22;
@@ -98,6 +99,7 @@ class HomePage extends HookConsumerWidget {
     );
 
     return Scaffold(
+      backgroundColor: Colors.transparent,
       // Keep the floating navigation and Home quick actions anchored while the
       // keyboard is visible on any tab.
       resizeToAvoidBottomInset: false,
@@ -106,6 +108,7 @@ class HomePage extends HookConsumerWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
+            Positioned.fill(child: ColoredBox(color: context.colors.surface)),
             Positioned.fill(
               child: MediaQuery(
                 data: _mediaQueryWithFloatingTabBarClearance(
@@ -113,6 +116,14 @@ class HomePage extends HookConsumerWidget {
                   HomePage._fabClearance,
                 ),
                 child: IndexedStack(index: tabIndex.value, children: pages),
+              ),
+            ),
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: IgnorePointer(
+                child: MobileTabFooterBackdrop(
+                  height: mobileTabFooterBackdropHeight(context),
+                ),
               ),
             ),
             Positioned.fill(

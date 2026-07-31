@@ -105,6 +105,9 @@ class MainActivity : FlutterActivity() {
                     TRANSCODE_VIDEO_TO_MP4_METHOD -> {
                         handleTranscodeVideoToMp4(call.arguments, result)
                     }
+                    REQUIRES_LEGACY_MEDIA_STORAGE_PERMISSION_METHOD -> {
+                        result.success(Build.VERSION.SDK_INT <= Build.VERSION_CODES.P)
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -420,5 +423,7 @@ class MainActivity : FlutterActivity() {
         private const val FOLLOW_UP_NOTIFICATION_PREFS = "cos-follow-up-notifications"
         private const val FOLLOW_UP_PERMISSION_REQUESTED_KEY = "permission-requested"
         private const val FOLLOW_UP_PERMISSION_REQUEST_CODE = 47010
+        private const val REQUIRES_LEGACY_MEDIA_STORAGE_PERMISSION_METHOD =
+            "requiresLegacyMediaStoragePermission"
     }
 }

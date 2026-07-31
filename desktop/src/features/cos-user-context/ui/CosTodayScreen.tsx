@@ -255,7 +255,7 @@ export function CosTodayScreen() {
                 icon={<ListChecks className="h-5 w-5" />}
                 onClick={() => void navigation.goRunningOrder()}
                 testId="today-running-order"
-                title="COS Running Order"
+                title="Delivery Room"
               />
             ) : null}
           </div>

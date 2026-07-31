@@ -35,6 +35,8 @@ typealias FollowUpNotificationSettingsReader = (
   private var mediaUploadChannel: FlutterMethodChannel?
   private var qrScannerChannel: FlutterMethodChannel?
   private var followUpNotificationChannel: FlutterMethodChannel?
+  private var inlinePhotoPickerSupportChannel: FlutterMethodChannel?
+  private var nativeAttachmentPopoverCoordinator: NativeAttachmentPopoverCoordinator?
 
   override func application(
     _ application: UIApplication,
@@ -56,16 +58,17 @@ typealias FollowUpNotificationSettingsReader = (
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let messenger = engineBridge.applicationRegistrar.messenger()
     mediaUploadChannel = FlutterMethodChannel(
       name: "buzz/media_upload",
-      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+      binaryMessenger: messenger
     )
     mediaUploadChannel?.setMethodCallHandler { [weak self] call, result in
       self?.handleMediaUploadMethodCall(call, result: result)
     }
     qrScannerChannel = FlutterMethodChannel(
       name: "buzz/qr_scanner",
-      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+      binaryMessenger: messenger
     )
     qrScannerChannel?.setMethodCallHandler { call, result in
       Self.handleQrScannerMethodCall(call, result: result)
@@ -77,6 +80,42 @@ typealias FollowUpNotificationSettingsReader = (
     followUpNotificationChannel?.setMethodCallHandler { call, result in
       Self.handleFollowUpNotificationMethodCall(call, result: result)
     }
+
+    inlinePhotoPickerSupportChannel = FlutterMethodChannel(
+      name: "buzz/inline_photo_picker",
+      binaryMessenger: messenger
+    )
+    inlinePhotoPickerSupportChannel?.setMethodCallHandler { call, result in
+      guard call.method == "isSupported" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      if #available(iOS 17.0, *) {
+        result(true)
+      } else {
+        result(false)
+      }
+    }
+
+    if let inlinePhotoPickerRegistrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "BuzzInlinePhotoPicker"
+    ) {
+      inlinePhotoPickerRegistrar.register(
+        InlinePhotoPickerFactory(
+          messenger: messenger,
+          parentViewController: inlinePhotoPickerRegistrar.viewController
+        ),
+        withId: "buzz/inline_photo_picker"
+      )
+    }
+
+    let nativeAttachmentRegistrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "BuzzNativeAttachmentPopover"
+    )
+    nativeAttachmentPopoverCoordinator = NativeAttachmentPopoverCoordinator(
+      messenger: messenger,
+      parentViewController: nativeAttachmentRegistrar?.viewController
+    )
   }
 
   static func handleFollowUpNotificationMethodCall(
@@ -339,10 +378,12 @@ typealias FollowUpNotificationSettingsReader = (
     let sourceURL = URL(fileURLWithPath: sourcePath)
     let asset = AVURLAsset(url: sourceURL)
 
-    guard let exportSession = AVAssetExportSession(
-      asset: asset,
-      presetName: AVAssetExportPresetPassthrough
-    ) else {
+    guard
+      let exportSession = AVAssetExportSession(
+        asset: asset,
+        presetName: AVAssetExportPresetPassthrough
+      )
+    else {
       result(
         FlutterError(
           code: "transcode_failed",
@@ -367,7 +408,8 @@ typealias FollowUpNotificationSettingsReader = (
       case .completed:
         result(outputURL.path)
       default:
-        let errorMessage = exportSession.error?.localizedDescription
+        let errorMessage =
+          exportSession.error?.localizedDescription
           ?? "Video transcoding failed with status \(exportSession.status.rawValue)."
         result(
           FlutterError(
