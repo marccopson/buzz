@@ -20,6 +20,8 @@ import {
   type SourceEvidence,
 } from "./cosDeliveryRoomTypes.ts";
 import { verifyCosDeliveryRoomGeneration } from "./cosDeliveryRoomDigest.ts";
+import { REVIEWED_TEAM_TEMPLATES } from "./cosDeliveryRoomTemplates.ts";
+import { strictDeliveryRoomDate } from "./cosDeliveryRoomTime.ts";
 
 export * from "./cosDeliveryRoomDigest.ts";
 export * from "./cosDeliveryRoomThreads.ts";
@@ -138,9 +140,8 @@ function enumValue<T extends string>(
 }
 
 function parseDate(value: unknown, label: string): Date {
-  const raw = string(value, label);
-  const date = new Date(raw);
-  if (Number.isNaN(date.getTime())) return fail(`${label} is invalid`);
+  const date = strictDeliveryRoomDate(value);
+  if (!date) return fail(`${label} is invalid`);
   return date;
 }
 
@@ -151,8 +152,8 @@ function calculatedFreshness(
 ): DeliveryRoomEvidenceFreshness {
   if (typeof observedAt !== "string" || observedAt.length === 0)
     return "invalid";
-  const observed = new Date(observedAt);
-  if (Number.isNaN(observed.getTime())) return "invalid";
+  const observed = strictDeliveryRoomDate(observedAt);
+  if (!observed) return "invalid";
   const age = now.getTime() - observed.getTime();
   if (age < -DELIVERY_ROOM_MAX_CLOCK_SKEW_MS) return "invalid";
   return age <= freshForMs ? "current" : "stale";
@@ -920,18 +921,10 @@ export function projectCosDeliveryRoom(
   ).map((template, index) =>
     parseTemplate(template, `deliveryRoom.teamTemplates[${index}]`),
   );
-  const expectedTemplateOrder: DeliveryRoomTemplateId[] = [
-    "senior-development-team",
-    "planning-council",
-    "board-of-advisors",
-  ];
   if (
-    teamTemplates.length !== expectedTemplateOrder.length ||
-    teamTemplates.some(
-      (template, index) => template.id !== expectedTemplateOrder[index],
-    )
+    JSON.stringify(teamTemplates) !== JSON.stringify(REVIEWED_TEAM_TEMPLATES)
   ) {
-    fail("the reviewed team-room templates are incomplete or reordered");
+    fail("the reviewed team-room templates were changed");
   }
 
   return {
@@ -963,12 +956,14 @@ export async function loadCosDeliveryRoom({
   relayUrl,
   signal,
   fetcher = fetch,
-  now = new Date(),
+  now,
+  clock = () => new Date(),
 }: {
   relayUrl: string;
   signal?: AbortSignal;
   fetcher?: typeof fetch;
   now?: Date;
+  clock?: () => Date;
 }): Promise<CosDeliveryRoom> {
   const response = await fetcher(cosDeliveryRoomEndpoint(relayUrl), {
     cache: "no-store",
@@ -981,5 +976,5 @@ export async function loadCosDeliveryRoom({
   }
   const input = await response.json();
   await verifyCosDeliveryRoomGeneration(input);
-  return projectCosDeliveryRoom(input, { now });
+  return projectCosDeliveryRoom(input, { now: now ?? clock() });
 }

@@ -209,3 +209,70 @@ test("stale signed source hides all delivery claims", async ({ page }) => {
     page.locator("[data-testid^='delivery-room-item-']"),
   ).toHaveCount(0);
 });
+
+test("a stale refetch clears previously verified delivery claims", async ({
+  page,
+}) => {
+  let stale = false;
+  await installMockBridge(page, { cosUserContext: "admin" });
+  await page.route("**/api/mac-delivery-room/v1", async (route) => {
+    const fixture = await currentFixture();
+    if (stale) fixture.source.status = "stale";
+    fixture.generationId = await cosDeliveryRoomGenerationId(fixture);
+    await route.fulfill({
+      body: JSON.stringify(fixture),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+
+  await page.goto("/#/running-order");
+  await expect(page.getByTestId("delivery-room-item-COS-901")).toBeVisible();
+  stale = true;
+  await page.getByRole("button", { name: "Refresh Delivery Room" }).click();
+
+  await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible();
+  await expect(
+    page.locator("[data-testid^='delivery-room-item-']"),
+  ).toHaveCount(0);
+  await expect(page.getByText("Signed source verified")).toHaveCount(0);
+});
+
+test("an open card resolves against the latest signed generation", async ({
+  page,
+}) => {
+  let revised = false;
+  await installMockBridge(page, { cosUserContext: "admin" });
+  await page.route("**/api/mac-delivery-room/v1", async (route) => {
+    const fixture = await currentFixture();
+    if (revised) {
+      fixture.deliveryRoom.workItems.find(
+        (item: { id: string }) => item.id === "COS-901",
+      ).title = "Build the revised signed Delivery Room projection";
+    }
+    fixture.generationId = await cosDeliveryRoomGenerationId(fixture);
+    await route.fulfill({
+      body: JSON.stringify(fixture),
+      contentType: "application/json",
+      status: 200,
+    });
+  });
+
+  await page.goto("/#/running-order");
+  await page.getByTestId("delivery-room-item-COS-901").click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText(
+    "Build the signed Delivery Room projection",
+  );
+
+  revised = true;
+  await page
+    .locator('button[aria-label="Refresh Delivery Room"]')
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await expect(dialog).toContainText(
+    "Build the revised signed Delivery Room projection",
+  );
+  await expect(dialog).not.toContainText(
+    "Build the signed Delivery Room projection",
+  );
+});

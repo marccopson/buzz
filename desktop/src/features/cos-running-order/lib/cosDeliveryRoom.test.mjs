@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
@@ -12,6 +13,15 @@ import {
 
 const NOW = new Date("2026-07-31T09:05:00.000Z");
 const CURRENT = "2026-07-31T09:04:00.000Z";
+const REVIEWED_TEMPLATES = JSON.parse(
+  readFileSync(
+    new URL(
+      "../../../../tests/fixtures/mac-delivery-room-v1.json",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+).deliveryRoom.teamTemplates;
 
 function evidence(id, kind, options = {}) {
   return {
@@ -27,22 +37,6 @@ function evidence(id, kind, options = {}) {
     observedAt: CURRENT,
     freshness: "current",
     freshForMs: 60 * 60 * 1000,
-  };
-}
-
-function template(id, name) {
-  return {
-    id,
-    name,
-    decisionAuthority: "human",
-    roles: [
-      {
-        key: "lead",
-        label: "Lead",
-        purpose: "Own evidenced room synthesis.",
-        required: true,
-      },
-    ],
   };
 }
 
@@ -197,11 +191,7 @@ function envelope() {
           ],
         },
       ],
-      teamTemplates: [
-        template("senior-development-team", "Senior Development Team"),
-        template("planning-council", "Planning Council"),
-        template("board-of-advisors", "Board of Advisors"),
-      ],
+      teamTemplates: copy(REVIEWED_TEMPLATES),
     },
   };
 }
@@ -286,6 +276,23 @@ test("fails closed for stale source evidence and timestamp freshness contradicti
   );
 });
 
+test("requires timezone-aware RFC3339 timestamps without calendar rollover", () => {
+  const timezoneLess = copy(envelope());
+  timezoneLess.generatedAt = "2026-07-31T09:05:00";
+  timezoneLess.deliveryRoom.generatedAt = "2026-07-31T09:05:00";
+  assert.throws(
+    () => projectCosDeliveryRoom(timezoneLess, { now: NOW }),
+    /generatedAt is stale or invalid/,
+  );
+
+  const rollover = copy(envelope());
+  rollover.source.reconciliation.observedAt = "2026-02-30T09:04:00.000Z";
+  assert.throws(
+    () => projectCosDeliveryRoom(rollover, { now: NOW }),
+    /reconciliation\.observedAt is stale or invalid/,
+  );
+});
+
 test("fails closed when attention or stage membership contradicts work state", () => {
   const attention = copy(envelope());
   attention.deliveryRoom.attention.needsManager.workItemIds = [];
@@ -341,6 +348,13 @@ test("fails closed for non-human authority and writable projections", () => {
     () => projectCosDeliveryRoom(writable, { now: NOW }),
     /projection is not read-only/,
   );
+
+  const changedTemplate = copy(envelope());
+  changedTemplate.deliveryRoom.teamTemplates[0].roles = [];
+  assert.throws(
+    () => projectCosDeliveryRoom(changedTemplate, { now: NOW }),
+    /reviewed team-room templates were changed/,
+  );
 });
 
 test("verifies the content digest and loads only the Delivery Room endpoint", async () => {
@@ -376,4 +390,23 @@ test("verifies the content digest and loads only the Delivery Room endpoint", as
       init: { cache: "no-store", signal: undefined },
     },
   ]);
+});
+
+test("measures freshness after a delayed response is received", async () => {
+  const delayed = envelope();
+  delayed.generationId = await cosDeliveryRoomGenerationId(delayed);
+  let consumptionTime = NOW;
+
+  await assert.rejects(
+    () =>
+      loadCosDeliveryRoom({
+        relayUrl: "wss://forge-do.tailfe35cd.ts.net/",
+        clock: () => consumptionTime,
+        fetcher: async () => {
+          consumptionTime = new Date("2026-07-31T09:21:00.000Z");
+          return { ok: true, json: async () => delayed };
+        },
+      }),
+    /generatedAt is stale or invalid/,
+  );
 });

@@ -30,6 +30,10 @@ import {
   formatDeliveryRoomTimestamp,
   latestCurrentEvidence,
 } from "@/features/cos-running-order/lib/cosDeliveryRoomPresentation";
+import {
+  HEALTH_PRESENTATION,
+  PARTICIPANT_PRESENTATION,
+} from "@/features/cos-running-order/lib/cosDeliveryRoomUiPresentation";
 import { cn } from "@/shared/lib/cn";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -49,68 +53,9 @@ type DetailSelection =
       team?: DeliveryRoomTeam;
     };
 
-const PARTICIPANT_PRESENTATION: Record<
-  DeliveryRoomParticipantState,
-  { label: string; className: string }
-> = {
-  working: {
-    label: "Working",
-    className:
-      "border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300",
-  },
-  reviewing: {
-    label: "Reviewing",
-    className:
-      "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300",
-  },
-  waiting: {
-    label: "Waiting",
-    className:
-      "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  },
-  available: {
-    label: "Available",
-    className:
-      "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  },
-  needs_you: {
-    label: "Needs you",
-    className:
-      "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
-  },
-  stalled: {
-    label: "Stalled",
-    className: "border-destructive/30 bg-destructive/10 text-destructive",
-  },
-  unavailable: {
-    label: "Unavailable",
-    className: "border-border bg-muted text-muted-foreground",
-  },
-};
-
-const HEALTH_PRESENTATION: Record<
-  DeliveryRoomWorkHealth,
-  { label: string; className: string }
-> = {
-  on_track: {
-    label: "On track",
-    className:
-      "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  },
-  needs_manager: {
-    label: "Needs Marc",
-    className:
-      "border-orange-500/30 bg-orange-500/10 text-orange-700 dark:text-orange-300",
-  },
-  stalled: {
-    label: "Stalled",
-    className: "border-destructive/30 bg-destructive/10 text-destructive",
-  },
-  unavailable: {
-    label: "Evidence unavailable",
-    className: "border-border bg-muted text-muted-foreground",
-  },
-};
+type DetailSelectionKey =
+  | { kind: "work"; itemId: string }
+  | { kind: "team"; templateId: DeliveryRoomTeamTemplate["id"] };
 
 function ParticipantBadge({ state }: { state: DeliveryRoomParticipantState }) {
   const presentation = PARTICIPANT_PRESENTATION[state];
@@ -756,7 +701,7 @@ function DetailDialog({
 }
 
 function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
-  const [selection, setSelection] = React.useState<DetailSelection | null>(
+  const [selection, setSelection] = React.useState<DetailSelectionKey | null>(
     null,
   );
   const projection = room.deliveryRoom;
@@ -764,6 +709,24 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
     () => new Map(projection.workItems.map((item) => [item.id, item])),
     [projection.workItems],
   );
+  const currentSelection = React.useMemo<DetailSelection | null>(() => {
+    if (selection?.kind === "work") {
+      const item = workById.get(selection.itemId);
+      return item ? { kind: "work", item } : null;
+    }
+    if (selection?.kind === "team") {
+      const template = projection.teamTemplates.find(
+        (candidate) => candidate.id === selection.templateId,
+      );
+      if (!template) return null;
+      const team = projection.teams.find(
+        (candidate) =>
+          candidate.templateId === template.id || candidate.id === template.id,
+      );
+      return { kind: "team", template, team };
+    }
+    return null;
+  }, [projection.teamTemplates, projection.teams, selection, workById]);
   const attentionItems = (ids: string[]) =>
     ids
       .map((id) => workById.get(id))
@@ -782,7 +745,7 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
               projection.attention.needsManager.workItemIds,
             )}
             label="Needs Marc"
-            onSelect={(item) => setSelection({ kind: "work", item })}
+            onSelect={(item) => setSelection({ kind: "work", itemId: item.id })}
             tone="orange"
           />
           <AttentionPanel
@@ -790,7 +753,7 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
               projection.attention.blockedOrStalled.workItemIds,
             )}
             label="Blocked or stalled"
-            onSelect={(item) => setSelection({ kind: "work", item })}
+            onSelect={(item) => setSelection({ kind: "work", itemId: item.id })}
             tone="red"
           />
         </div>
@@ -818,7 +781,9 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
             return (
               <TeamRoomCard
                 key={template.id}
-                onSelect={() => setSelection({ kind: "team", template, team })}
+                onSelect={() =>
+                  setSelection({ kind: "team", templateId: template.id })
+                }
                 team={team}
                 template={template}
               />
@@ -868,7 +833,9 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
                       <WorkCard
                         item={item}
                         key={item.id}
-                        onSelect={() => setSelection({ kind: "work", item })}
+                        onSelect={() =>
+                          setSelection({ kind: "work", itemId: item.id })
+                        }
                       />
                     ))
                   )}
@@ -881,7 +848,7 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
       <DetailDialog
         onClose={() => setSelection(null)}
         room={projection}
-        selection={selection}
+        selection={currentSelection}
       />
     </>
   );
@@ -964,7 +931,7 @@ export function CosDeliveryRoomScreen() {
           </div>
         ) : null}
 
-        {deliveryRoomQuery.data ? (
+        {deliveryRoomQuery.data && !deliveryRoomQuery.isError ? (
           <>
             <div className="mx-auto mb-4 flex max-w-[96rem] flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3 py-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5 font-medium text-emerald-700 dark:text-emerald-300">
