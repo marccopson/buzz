@@ -908,12 +908,17 @@ async fn submit_event_authed(
         tenant.community(),
         &pubkey_bytes,
         auth_tag,
+        super::relay_members::NipOaAdmission::Nip98,
     )
     .await
     {
         Ok(owner) => owner.or_else(|| {
             if !state.config.require_relay_membership {
-                super::relay_members::extract_nip_oa_owner(&pubkey_bytes, auth_tag)
+                super::relay_members::extract_nip_oa_owner(
+                    &pubkey_bytes,
+                    auth_tag,
+                    super::relay_members::NipOaAdmission::Nip98,
+                )
             } else {
                 None
             }
@@ -1068,6 +1073,7 @@ async fn query_events_authed(
         tenant.community(),
         &pubkey_bytes,
         auth_tag,
+        super::relay_members::NipOaAdmission::Nip98,
     )
     .await?;
 
@@ -1524,6 +1530,7 @@ async fn count_events_authed(
         tenant.community(),
         &pubkey_bytes,
         auth_tag,
+        super::relay_members::NipOaAdmission::Nip98,
     )
     .await?;
 

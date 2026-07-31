@@ -41,6 +41,36 @@ pub mod relay_members {
 
     use crate::state::AppState;
 
+    /// Authentication event kind whose NIP-OA conditions are being admitted.
+    #[derive(Debug, Clone, Copy)]
+    pub enum NipOaAdmission {
+        /// WebSocket NIP-42 AUTH (kind 22242).
+        Nip42,
+        /// HTTP NIP-98 authentication (kind 27235).
+        Nip98,
+    }
+
+    impl NipOaAdmission {
+        fn kind(self) -> u16 {
+            match self {
+                Self::Nip42 => 22_242,
+                Self::Nip98 => 27_235,
+            }
+        }
+    }
+
+    fn verify_nip_oa_owner_at(
+        pubkey_bytes: &[u8],
+        auth_tag: &str,
+        admission: NipOaAdmission,
+        now: u64,
+    ) -> Result<nostr::PublicKey, String> {
+        let agent = nostr::PublicKey::from_slice(pubkey_bytes)
+            .map_err(|e| format!("invalid agent pubkey for NIP-OA check: {e}"))?;
+        buzz_sdk::nip_oa::verify_auth_tag_for_admission(auth_tag, &agent, admission.kind(), now)
+            .map_err(|e| e.to_string())
+    }
+
     /// Transport-neutral outcome of a relay-membership check.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub enum MembershipDecision {
@@ -63,6 +93,7 @@ pub mod relay_members {
         community: CommunityId,
         pubkey_bytes: &[u8],
         auth_tag_header: Option<&str>,
+        admission: NipOaAdmission,
     ) -> Result<MembershipDecision, String> {
         if !state.config.require_relay_membership {
             return Ok(MembershipDecision::OpenRelay);
@@ -80,10 +111,12 @@ pub mod relay_members {
 
         if state.config.allow_nip_oa_auth {
             if let Some(tag_json) = auth_tag_header {
-                let agent_pubkey = nostr::PublicKey::from_slice(pubkey_bytes)
-                    .map_err(|e| format!("invalid agent pubkey for NIP-OA check: {e}"))?;
-
-                match buzz_sdk::nip_oa::verify_auth_tag(tag_json, &agent_pubkey) {
+                match verify_nip_oa_owner_at(
+                    pubkey_bytes,
+                    tag_json,
+                    admission,
+                    chrono::Utc::now().timestamp().max(0) as u64,
+                ) {
                     Ok(owner_pubkey) => {
                         let owner_hex = owner_pubkey.to_hex();
                         let owner_is_member = state
@@ -126,8 +159,11 @@ pub mod relay_members {
         community: CommunityId,
         pubkey_bytes: &[u8],
         auth_tag_header: Option<&str>,
+        admission: NipOaAdmission,
     ) -> Result<Option<nostr::PublicKey>, (StatusCode, Json<serde_json::Value>)> {
-        match check_relay_membership(state, community, pubkey_bytes, auth_tag_header).await {
+        match check_relay_membership(state, community, pubkey_bytes, auth_tag_header, admission)
+            .await
+        {
             Ok(MembershipDecision::OpenRelay) | Ok(MembershipDecision::Member) => Ok(None),
             Ok(MembershipDecision::ViaOwner(owner)) => Ok(Some(owner)),
             Ok(MembershipDecision::Denied) => Err((
@@ -154,10 +190,15 @@ pub mod relay_members {
     pub fn extract_nip_oa_owner(
         pubkey_bytes: &[u8],
         auth_tag_header: Option<&str>,
+        admission: NipOaAdmission,
     ) -> Option<nostr::PublicKey> {
         let tag_json = auth_tag_header?;
-        let agent_pubkey = nostr::PublicKey::from_slice(pubkey_bytes).ok()?;
-        match buzz_sdk::nip_oa::verify_auth_tag(tag_json, &agent_pubkey) {
+        match verify_nip_oa_owner_at(
+            pubkey_bytes,
+            tag_json,
+            admission,
+            chrono::Utc::now().timestamp().max(0) as u64,
+        ) {
             Ok(owner) => Some(owner),
             Err(e) => {
                 info!("extract_nip_oa_owner: invalid auth tag: {e}");
@@ -247,7 +288,11 @@ pub mod relay_members {
             let tag_json = compute_auth_tag(&owner_keys, &agent_pubkey, "")
                 .expect("compute_auth_tag must succeed");
 
-            let result = extract_nip_oa_owner(&agent_pubkey.to_bytes(), Some(&tag_json));
+            let result = extract_nip_oa_owner(
+                &agent_pubkey.to_bytes(),
+                Some(&tag_json),
+                NipOaAdmission::Nip42,
+            );
 
             assert_eq!(result, Some(owner_keys.public_key()));
         }
@@ -258,7 +303,8 @@ pub mod relay_members {
             let agent_keys = Keys::generate();
             let agent_pubkey = agent_keys.public_key();
 
-            let result = extract_nip_oa_owner(&agent_pubkey.to_bytes(), None);
+            let result =
+                extract_nip_oa_owner(&agent_pubkey.to_bytes(), None, NipOaAdmission::Nip42);
 
             assert_eq!(result, None);
         }
@@ -269,9 +315,39 @@ pub mod relay_members {
             let agent_keys = Keys::generate();
             let agent_pubkey = agent_keys.public_key();
 
-            let result = extract_nip_oa_owner(&agent_pubkey.to_bytes(), Some("not valid json"));
+            let result = extract_nip_oa_owner(
+                &agent_pubkey.to_bytes(),
+                Some("not valid json"),
+                NipOaAdmission::Nip42,
+            );
 
             assert_eq!(result, None);
+        }
+
+        #[test]
+        fn admission_rejects_the_same_attestation_at_expiry() {
+            let owner = Keys::generate();
+            let agent = Keys::generate();
+            let tag =
+                compute_auth_tag(&owner, &agent.public_key(), "kind=22242&created_at<200").unwrap();
+
+            assert_eq!(
+                verify_nip_oa_owner_at(
+                    agent.public_key().as_bytes(),
+                    &tag,
+                    NipOaAdmission::Nip42,
+                    199,
+                )
+                .unwrap(),
+                owner.public_key()
+            );
+            assert!(verify_nip_oa_owner_at(
+                agent.public_key().as_bytes(),
+                &tag,
+                NipOaAdmission::Nip42,
+                200,
+            )
+            .is_err());
         }
     }
 }

@@ -153,6 +153,7 @@ pub const P_GATED_KINDS: &[u32] = &[
     // readable by any unauthenticated or non-owner party, including via `ids`
     // filters — see NIP-AM §Relay Behavior.
     KIND_AGENT_TURN_METRIC,
+    KIND_MAC_ASSISTANT_ENROLMENT_ATTESTATION,
 ];
 
 /// NIP-AP: Agent Persona (parameterized replaceable, owner-authored).
@@ -534,10 +535,14 @@ pub const KIND_COS_FOLLOW_UP_ITEM: u32 = 37010;
 /// items. Clients query with `#p = self` and use the signed module list to
 /// render the role-aware MAC Workspace front door.
 pub const KIND_COS_USER_CONTEXT: u32 = 37012;
+/// Bridge-authored short-lived assistant enrolment request for one identity.
+pub const KIND_MAC_ASSISTANT_ENROLMENT_REQUEST: u32 = 37013;
 /// User-authored COS follow-up action command.
 pub const KIND_COS_FOLLOW_UP_COMMAND: u32 = 47010;
 /// Bridge-authored authoritative outcome for a COS follow-up command.
 pub const KIND_COS_FOLLOW_UP_RECEIPT: u32 = 47011;
+/// User-authored approval of one assistant enrolment request.
+pub const KIND_MAC_ASSISTANT_ENROLMENT_ATTESTATION: u32 = 47012;
 
 // System / admin custom range (48000–48999)
 /// An audit log entry was recorded.
@@ -692,8 +697,10 @@ pub const ALL_KINDS: &[u32] = &[
     KIND_WORKFLOW_APPROVAL_DENIED,
     KIND_COS_FOLLOW_UP_ITEM,
     KIND_COS_USER_CONTEXT,
+    KIND_MAC_ASSISTANT_ENROLMENT_REQUEST,
     KIND_COS_FOLLOW_UP_COMMAND,
     KIND_COS_FOLLOW_UP_RECEIPT,
+    KIND_MAC_ASSISTANT_ENROLMENT_ATTESTATION,
     KIND_AUDIT_ENTRY,
     KIND_HUDDLE_STARTED,
     KIND_HUDDLE_PARTICIPANT_JOINED,

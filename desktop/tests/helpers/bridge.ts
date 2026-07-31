@@ -142,7 +142,7 @@ type MockBridgeOptions = {
   /** Relay NIP-11 COS follow-up bridge authority. Null disables the feature. */
   cosFollowUpBridgePubkey?: string | null;
   /** Trusted COS Workspace context returned by the mock relay. Defaults to admin. */
-  cosUserContext?: "admin" | "staff" | null;
+  cosUserContext?: "admin" | "staff" | "jake" | null;
   /** Delay (ms) before the mock relay returns the trusted Workspace context. */
   cosUserContextDelayMs?: number;
   /** Delay trusted kind-5 live subscription registration for race tests. */

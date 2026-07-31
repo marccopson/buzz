@@ -410,6 +410,23 @@ fn build_client_capabilities() -> serde_json::Value {
     })
 }
 
+fn scrub_file_backed_identity_from_child(
+    command: &mut tokio::process::Command,
+    file_backed_identity: bool,
+) {
+    if !file_backed_identity {
+        return;
+    }
+    for key in [
+        "BUZZ_PRIVATE_KEY",
+        "BUZZ_ACP_PRIVATE_KEY",
+        "BUZZ_PRIVATE_KEY_FILE",
+        "CREDENTIALS_DIRECTORY",
+    ] {
+        command.env_remove(key);
+    }
+}
+
 impl AcpClient {
     /// Kill the agent subprocess and wait for it to exit (no zombies).
     ///
@@ -453,6 +470,7 @@ impl AcpClient {
         args: &[String],
         extra_env: &[(String, String)],
         has_generated_codex_config: bool,
+        file_backed_identity: bool,
     ) -> Result<Self, AcpError> {
         use std::process::Stdio;
 
@@ -512,6 +530,11 @@ impl AcpClient {
         if let Some(merged) = codex_config_value {
             cmd.env("CODEX_CONFIG", merged);
         }
+
+        // A file-backed service identity is consumed only by the harness.
+        // Never pass a legacy secret value, the credential path, or systemd's
+        // credential-directory locator to the model-backed agent process.
+        scrub_file_backed_identity_from_child(&mut cmd, file_backed_identity);
 
         // Spawn the agent in its own process group so SIGKILL doesn't propagate
         // to the harness's own process group on Unix.
@@ -2847,7 +2870,7 @@ mod tests {
     }
 
     async fn spawn_script(script: &str) -> AcpClient {
-        AcpClient::spawn("bash", &["-c".into(), script.into()], &[], false)
+        AcpClient::spawn("bash", &["-c".into(), script.into()], &[], false, false)
             .await
             .expect("failed to spawn test script")
     }
@@ -2879,6 +2902,7 @@ mod tests {
             path.to_str().expect("probe path is UTF-8"),
             &[],
             extra_env,
+            false,
             false,
         )
         .await
@@ -2922,6 +2946,85 @@ mod tests {
             "<unset>",
             "non-Hermes spawns must not receive Hermes defaults"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn file_backed_identity_is_absent_from_child_argv_env_and_output() {
+        const SENTINEL: &str = "test-private-key-must-not-reach-child";
+        let mut command = tokio::process::Command::new("/usr/bin/env");
+        command
+            .env("BUZZ_PRIVATE_KEY", SENTINEL)
+            .env("BUZZ_ACP_PRIVATE_KEY", SENTINEL)
+            .env("BUZZ_PRIVATE_KEY_FILE", "/run/credentials/test/key")
+            .env("CREDENTIALS_DIRECTORY", "/run/credentials/test");
+        scrub_file_backed_identity_from_child(&mut command, true);
+
+        let output = command
+            .output()
+            .await
+            .expect("sanitised child environment should be inspectable");
+        assert!(output.status.success());
+        assert!(command.as_std().get_args().next().is_none());
+        for forbidden in [
+            SENTINEL.as_bytes(),
+            b"BUZZ_PRIVATE_KEY=".as_slice(),
+            b"BUZZ_ACP_PRIVATE_KEY=".as_slice(),
+            b"BUZZ_PRIVATE_KEY_FILE=".as_slice(),
+            b"CREDENTIALS_DIRECTORY=".as_slice(),
+        ] {
+            assert!(
+                !output
+                    .stdout
+                    .windows(forbidden.len())
+                    .any(|part| part == forbidden),
+                "file-backed identity material reached captured child stdout"
+            );
+            assert!(
+                !output
+                    .stderr
+                    .windows(forbidden.len())
+                    .any(|part| part == forbidden),
+                "file-backed identity material reached captured child stderr"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn file_backed_spawn_path_scrubs_identity_before_agent_launch() {
+        const SENTINEL: &str = "test-private-key-must-not-reach-agent";
+        let script = r#"
+            if env | grep -Eq '^(BUZZ_PRIVATE_KEY|BUZZ_ACP_PRIVATE_KEY|BUZZ_PRIVATE_KEY_FILE|CREDENTIALS_DIRECTORY)='; then
+                exit 91
+            fi
+            read -r _request
+            printf '%s\n' '{"jsonrpc":"2.0","id":0,"result":{"protocolVersion":1,"agentCapabilities":{}}}'
+            sleep 1
+        "#;
+        let args = vec!["-c".to_string(), script.to_string()];
+        assert!(args.iter().all(|argument| !argument.contains(SENTINEL)));
+        let extra_env = vec![
+            ("BUZZ_PRIVATE_KEY".to_string(), SENTINEL.to_string()),
+            ("BUZZ_ACP_PRIVATE_KEY".to_string(), SENTINEL.to_string()),
+            (
+                "BUZZ_PRIVATE_KEY_FILE".to_string(),
+                "/run/credentials/test/key".to_string(),
+            ),
+            (
+                "CREDENTIALS_DIRECTORY".to_string(),
+                "/run/credentials/test".to_string(),
+            ),
+        ];
+        let mut client = AcpClient::spawn("bash", &args, &extra_env, false, true)
+            .await
+            .expect("file-backed agent child should spawn");
+        let response = client
+            .initialize()
+            .await
+            .expect("sanitised child should complete ACP initialisation");
+        assert!(!response.to_string().contains(SENTINEL));
+        client.shutdown().await;
     }
 
     #[tokio::test]
@@ -3430,7 +3533,7 @@ mod tests {
     /// which is fine — these tests don't read from the agent, they just
     /// feed JSON into the parser.
     async fn spawn_inert_client() -> AcpClient {
-        AcpClient::spawn("cat", &[], &[], false)
+        AcpClient::spawn("cat", &[], &[], false, false)
             .await
             .expect("spawn cat as inert client")
     }

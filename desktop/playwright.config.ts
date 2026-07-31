@@ -86,6 +86,7 @@ export default defineConfig({
         "**/control-room.spec.ts",
         "**/cos-my-actions.spec.ts",
         "**/cos-workspace-sidebar.spec.ts",
+        "**/jake-assistant-activation.spec.ts",
         "**/reminders.spec.ts",
         "**/reminder-click-repro.spec.ts",
         "**/virtualization.spec.ts",

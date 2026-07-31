@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use client::BuzzClient;
 use error::CliError;
 use nostr::Keys;
+use std::path::PathBuf;
 use uuid::Uuid;
 
 /// Run the Buzz CLI from raw arguments (including `argv[0]`).
@@ -71,7 +72,9 @@ Configuration (flags override env vars):
   BUZZ_PRIVATE_KEY   Nostr private key (hex or nsec)  [required]
   BUZZ_AUTH_TAG      NIP-OA auth tag JSON  [optional]
 
-The 'pack' subcommand runs locally and does not require a relay connection.
+The 'pack' and 'mac-assistant verify-activation' subcommands run locally and do
+not require a relay connection. MAC Assistant verification rejects private-key
+and auth-tag inputs.
 
 Exit codes: 0=ok  1=bad input  2=relay/network error  3=auth error  4=other  5=write conflict
 Errors are JSON on stderr: {\"error\": \"<category>\", \"message\": \"<detail>\"}"
@@ -239,6 +242,50 @@ enum Cmd {
     /// COS meeting follow-up bridge and user actions
     #[command(subcommand)]
     FollowUps(FollowUpsCmd),
+    /// Verify Jake-only MAC Assistant activation bundles locally
+    #[command(subcommand)]
+    MacAssistant(MacAssistantCmd),
+}
+
+/// MAC Assistant activation and private-channel enrolment operations.
+#[derive(Subcommand)]
+enum MacAssistantCmd {
+    /// Verify a Desktop owner attestation against its brain-vps request
+    #[command(name = "verify-activation")]
+    VerifyActivation {
+        /// Prepared activation request JSON file
+        #[arg(long)]
+        request: PathBuf,
+        /// Desktop-exported attestation JSON file
+        #[arg(long)]
+        attestation: PathBuf,
+        /// Verification time override for deterministic offline tests
+        #[arg(long, hide = true)]
+        now: Option<u64>,
+    },
+    /// Sign and publish one typed bridge-authored enrolment request
+    #[command(name = "request-publish")]
+    RequestPublish {
+        /// Enrolment request JSON file (public values only)
+        #[arg(long)]
+        input: PathBuf,
+        /// Signing time override for deterministic tests
+        #[arg(long, hide = true)]
+        now: Option<u64>,
+    },
+    /// Collect and verify one user's signed private-channel approval
+    #[command(name = "attestation-collect")]
+    AttestationCollect {
+        #[arg(long)]
+        request_id: String,
+        #[arg(long)]
+        identity: String,
+        #[arg(long)]
+        channel: String,
+        /// Verification time override for deterministic tests
+        #[arg(long, hide = true)]
+        now: Option<u64>,
+    },
 }
 
 #[derive(Clone, Copy, clap::ValueEnum)]
@@ -1924,6 +1971,22 @@ pub enum ModerationCmd {
 async fn run(cli: Cli) -> Result<(), CliError> {
     let relay_url = client::normalize_relay_url(&cli.relay);
 
+    // MAC Assistant verification is local-only and never reads CLI identity
+    // credentials or connects to a relay.
+    if let Cmd::MacAssistant(MacAssistantCmd::VerifyActivation {
+        request,
+        attestation,
+        now,
+    }) = &cli.command
+    {
+        if cli.private_key.is_some() || cli.auth_tag.is_some() {
+            return Err(CliError::Usage(
+                "MAC Assistant verification does not accept private keys or auth tags".into(),
+            ));
+        }
+        return commands::mac_assistant::cmd_verify_activation(request, attestation, *now);
+    }
+
     // Contract introspection is local-only and must not require relay credentials.
     if matches!(&cli.command, Cmd::FollowUps(FollowUpsCmd::ContractInfo)) {
         commands::follow_ups::print_contract_info();
@@ -1986,6 +2049,7 @@ async fn run(cli: Cli) -> Result<(), CliError> {
         Cmd::Mem(sub) => commands::mem::dispatch(sub, &client).await,
         Cmd::Moderation(sub) => commands::moderation::dispatch(sub, &client, &cli.format).await,
         Cmd::FollowUps(sub) => commands::follow_ups::dispatch(sub, &client, &cli.format).await,
+        Cmd::MacAssistant(sub) => commands::mac_assistant::dispatch(sub, &client).await,
         Cmd::Pack(_) => unreachable!("handled above"),
     }
 }
@@ -2007,6 +2071,26 @@ mod tests {
             run_from_args(["buzz", "follow-ups", "contract-info"]).await,
             0
         );
+    }
+
+    #[tokio::test]
+    async fn mac_assistant_verifier_rejects_identity_credentials() {
+        let cli = Cli::try_parse_from([
+            "buzz",
+            "--private-key",
+            "owner-private-material-is-forbidden",
+            "mac-assistant",
+            "verify-activation",
+            "--request",
+            "/not/read/request.json",
+            "--attestation",
+            "/not/read/attestation.json",
+        ])
+        .unwrap();
+        let error = run(cli).await.unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not accept private keys or auth tags"));
     }
 
     #[test]
@@ -2044,6 +2128,7 @@ mod tests {
             "feed",
             "follow-ups",
             "issues",
+            "mac-assistant",
             "media",
             "mem",
             "messages",
@@ -2183,6 +2268,14 @@ mod tests {
             ]
         );
         assert_eq!(
+            names(&cmd, "mac-assistant"),
+            vec![
+                "attestation-collect",
+                "request-publish",
+                "verify-activation"
+            ]
+        );
+        assert_eq!(
             names(&cmd, "social"),
             vec![
                 "contacts",
@@ -2254,6 +2347,7 @@ mod tests {
             ("feed", 1),
             ("follow-ups", 9),
             ("issues", 4),
+            ("mac-assistant", 3),
             ("media", 1),
             ("messages", 8),
             ("pack", 2),

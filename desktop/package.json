@@ -85,6 +85,7 @@
   },
   "devDependencies": {
     "@noble/hashes": "^2.0.1",
+    "@noble/curves": "^2.0.1",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.3.0",
     "@tanstack/router-plugin": "^1.167.12",
