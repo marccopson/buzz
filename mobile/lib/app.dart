@@ -19,6 +19,7 @@ import 'shared/auth/auth.dart';
 import 'shared/deeplink/pending_deep_link_provider.dart';
 import 'shared/relay/relay.dart';
 import 'shared/theme/theme.dart';
+import 'shared/widgets/buzz_loading_indicator.dart';
 
 class App extends HookConsumerWidget {
   const App({super.key});
@@ -124,6 +125,10 @@ class _SplashScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    return const Scaffold(
+      body: Center(
+        child: BuzzLoadingIndicator(size: 56, semanticLabel: 'Starting Buzz'),
+      ),
+    );
   }
 }

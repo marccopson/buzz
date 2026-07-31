@@ -170,7 +170,10 @@ export function AppShell() {
   const { starredChannelIds, starChannel, unstarChannel } = useChannelStars(
     identityQuery.data?.pubkey,
   );
-  usePersonaSync(identityQuery.data?.pubkey);
+  usePersonaSync(
+    identityQuery.data?.pubkey,
+    communitiesHook.activeCommunity?.relayUrl,
+  );
   useAgentsDataRefresh();
   useAutoRestartPolicy();
   // Owner-global observer ingestion: receives + decrypts agent observer
@@ -230,6 +233,7 @@ export function AppShell() {
   const relayConnectionCard = useSidebarRelayConnectionCard(
     channelsErrorMessage,
     communitiesHook.activeCommunity?.relayUrl,
+    `${communitiesHook.activeCommunity?.id ?? "none"}-${communitiesHook.reinitKey}`,
   );
   const memberChannels = React.useMemo(
     () => channels.filter((channel) => channel.isMember),
