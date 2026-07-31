@@ -79,6 +79,7 @@ import { NotificationSettingsCard } from "./NotificationSettingsCard";
 import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
 import { ActiveAgentCommunitiesSettingsCard } from "./ActiveAgentCommunitiesSettingsCard";
 import { AgentDefaultsSettingsCard } from "./AgentDefaultsSettingsCard";
+import { MacBridgeAuthorisationSettingsCard } from "./MacBridgeAuthorisationSettingsCard";
 import { HostedCommunitiesSettingsCard } from "./HostedCommunitiesSettingsCard";
 import { SettingsOptionGroup, SettingsOptionRow } from "./SettingsOptionGroup";
 import { ProfileSettingsCard } from "./ProfileSettingsCard";
@@ -816,6 +817,7 @@ export function renderSettingsSection(
     case "agents":
       return (
         <div className="space-y-12">
+          <MacBridgeAuthorisationSettingsCard />
           <PreventSleepSettingsCard />
           <HarnessesSettingsPanel />
           <ActiveAgentCommunitiesSettingsCard />
