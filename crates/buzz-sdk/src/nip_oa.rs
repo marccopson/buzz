@@ -235,6 +235,44 @@ pub fn verify_auth_tag(
     Ok(owner_pubkey)
 }
 
+/// Verify a NIP-OA auth tag and enforce every condition for an admission use.
+///
+/// `kind` is the signed NIP-42 or NIP-98 authentication event kind and `now`
+/// is the relay's current Unix time. Conditions are deliberately evaluated
+/// against relay time rather than trusting the client-authored event timestamp.
+/// Unknown or malformed conditions are rejected by [`verify_auth_tag`].
+pub fn verify_auth_tag_for_admission(
+    auth_tag_json: &str,
+    agent_pubkey: &PublicKey,
+    kind: u16,
+    now: u64,
+) -> Result<PublicKey, SdkError> {
+    let owner = verify_auth_tag(auth_tag_json, agent_pubkey)?;
+    let arr = parse_json_array(auth_tag_json)?;
+    let conditions = arr
+        .get(2)
+        .and_then(Value::as_str)
+        .ok_or_else(|| SdkError::InvalidInput("element 2 (conditions) must be a string".into()))?;
+
+    for clause in conditions.split('&').filter(|clause| !clause.is_empty()) {
+        let satisfied = if let Some(value) = clause.strip_prefix("kind=") {
+            value.parse::<u16>().ok() == Some(kind)
+        } else if let Some(value) = clause.strip_prefix("created_at<") {
+            value.parse::<u64>().is_ok_and(|limit| now < limit)
+        } else if let Some(value) = clause.strip_prefix("created_at>") {
+            value.parse::<u64>().is_ok_and(|limit| now > limit)
+        } else {
+            false
+        };
+        if !satisfied {
+            return Err(SdkError::InvalidInput(format!(
+                "NIP-OA condition is not satisfied at admission: {clause:?}"
+            )));
+        }
+    }
+    Ok(owner)
+}
+
 /// Parse a NIP-OA `auth` tag JSON string into a [`Tag`] without verifying the
 /// signature.
 ///
@@ -584,6 +622,25 @@ mod tests {
         let err = verify_auth_tag(&bad_conditions, &agent_pubkey)
             .expect_err("leading zero must be rejected at verify");
         assert!(matches!(err, SdkError::InvalidInput(_)));
+    }
+
+    #[test]
+    fn admission_conditions_are_enforced_against_relay_time() {
+        let owner = Keys::generate();
+        let agent = Keys::generate();
+        let tag = compute_auth_tag(
+            &owner,
+            &agent.public_key(),
+            "kind=22242&created_at>99&created_at<101",
+        )
+        .unwrap();
+
+        assert_eq!(
+            verify_auth_tag_for_admission(&tag, &agent.public_key(), 22242, 100).unwrap(),
+            owner.public_key()
+        );
+        assert!(verify_auth_tag_for_admission(&tag, &agent.public_key(), 22242, 101).is_err());
+        assert!(verify_auth_tag_for_admission(&tag, &agent.public_key(), 27235, 100).is_err());
     }
 
     #[test]

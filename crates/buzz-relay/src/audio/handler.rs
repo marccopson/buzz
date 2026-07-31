@@ -246,6 +246,7 @@ async fn handle_active_audio_connection(
         tenant.community(),
         pubkey.as_bytes(),
         auth_tag_json.as_deref(),
+        crate::api::relay_members::NipOaAdmission::Nip42,
     )
     .await
     .is_err()

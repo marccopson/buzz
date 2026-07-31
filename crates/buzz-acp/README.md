@@ -106,7 +106,8 @@ All configuration is via environment variables (or CLI flags — every env var h
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `BUZZ_PRIVATE_KEY` | **yes** | — | Agent's Nostr private key (`nsec1...`). Used for relay auth and agent identity. |
+| `BUZZ_PRIVATE_KEY` | one source required | — | Legacy value source for the agent's Nostr private key (`nsec1...`). Do not use for systemd services. |
+| `BUZZ_PRIVATE_KEY_FILE` | one source required | — | Preferred protected regular-file source. Mutually exclusive with `BUZZ_PRIVATE_KEY`; systemd services should use `LoadCredential=` and `%d/<credential>`. The reference and key are removed from model-backed child environments. |
 | `BUZZ_RELAY_URL` | no | `ws://localhost:3000` | Relay WebSocket URL. |
 | `BUZZ_ACP_AGENT_COMMAND` | no | `goose` | Agent binary to spawn. |
 | `BUZZ_ACP_AGENT_ARGS` | no | `acp` | Agent arguments (comma-separated). |

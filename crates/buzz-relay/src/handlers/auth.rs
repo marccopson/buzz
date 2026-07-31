@@ -137,6 +137,7 @@ pub async fn handle_auth(event: nostr::Event, conn: Arc<ConnectionState>, state:
                     if let Some(owner) = crate::api::relay_members::extract_nip_oa_owner(
                         pubkey.as_bytes(),
                         auth_tag_json.as_deref(),
+                        crate::api::relay_members::NipOaAdmission::Nip42,
                     ) {
                         outcome = match state
                             .db
@@ -219,6 +220,7 @@ pub async fn handle_auth(event: nostr::Event, conn: Arc<ConnectionState>, state:
                 conn.tenant.community(),
                 pubkey.as_bytes(),
                 auth_tag_json.as_deref(),
+                crate::api::relay_members::NipOaAdmission::Nip42,
             )
             .await
             {
@@ -246,6 +248,7 @@ pub async fn handle_auth(event: nostr::Event, conn: Arc<ConnectionState>, state:
                     crate::api::relay_members::extract_nip_oa_owner(
                         pubkey.as_bytes(),
                         auth_tag_json.as_deref(),
+                        crate::api::relay_members::NipOaAdmission::Nip42,
                     )
                 } else {
                     None

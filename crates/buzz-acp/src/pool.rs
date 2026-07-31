@@ -5047,6 +5047,7 @@ mod tests {
             &["-c".to_string(), "sleep 10".to_string()],
             &[],
             false,
+            false,
         )
         .await
         .expect("failed to spawn test agent");
@@ -5104,6 +5105,7 @@ mod tests {
             "bash",
             &["-c".to_string(), "sleep 10".to_string()],
             &[],
+            false,
             false,
         )
         .await
