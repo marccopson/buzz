@@ -116,6 +116,11 @@ export function cosDeliveryRoomExpiresAt(room: CosDeliveryRoom): number {
     expiresAt(room.source.agentHealth.observedAt, sourceLifetimeMs),
   ];
   const addEvidence = (evidence: DeliveryRoomEvidence) => {
+    // Invalid evidence is deliberately retained for honest unavailable/unknown
+    // claims, but it has no verifiable timestamp and therefore cannot define a
+    // semantic expiry deadline. The parser has already checked that the
+    // declared freshness agrees with the missing or malformed timestamp.
+    if (evidence.freshness === "invalid") return;
     deadlines.push(expiresAt(evidence.observedAt, evidence.freshForMs));
   };
 
