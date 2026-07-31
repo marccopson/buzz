@@ -2,68 +2,74 @@ import 'package:buzz/features/cos_running_order/cos_running_order.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  test('parses the stable Forge running-order contract', () {
+  test('parses the signed Delivery Room projection contract', () {
     final snapshot = CosRunningOrderSnapshot.fromJson({
-      'schema': 'mac-workspace/cos-running-order/v1',
-      'generated_at_utc': '2026-07-27T16:08:14Z',
-      'operational_status': 'ok',
-      'overall_status': 'degraded',
-      'staging_revision': '9c351c0ce66071cf2380edcc31e413d176f0b3d2',
-      'counts': {
-        'active': 1,
-        'agent_running': 1,
-        'blocked': 1,
-        'completed': 0,
-        'human_test': 0,
-        'queued': 1,
-        'ready': 0,
-        'running': 2,
+      'schemaVersion': 'mac-workspace/delivery-room/v1',
+      'generatedAt': '2026-07-31T16:08:14Z',
+      'readOnly': true,
+      'source': {'status': 'fresh'},
+      'deliveryRoom': {
+        'schemaVersion': 'delivery-room-projection/v1',
+        'attention': {
+          'needsManager': {
+            'workItemIds': ['COS-102'],
+          },
+          'blockedOrStalled': {
+            'workItemIds': ['COS-102'],
+          },
+        },
+        'workItems': [
+          {
+            'id': 'work-cos-102',
+            'externalReference': {'key': 'COS-102'},
+            'title': 'Complete the finance workflow',
+            'currentActivity': 'Terra is reviewing the candidate.',
+            'nextAction': 'Address the review verdict.',
+            'owner': {'label': 'Terra reviewer'},
+            'stage': 'independent_review',
+            'health': 'needs_manager',
+          },
+          {
+            'id': 'work-cos-103',
+            'externalReference': {'key': 'COS-103'},
+            'title': 'Verify the staging release',
+            'currentActivity': 'Browser smoke is running.',
+            'nextAction': 'Record the staging evidence.',
+            'owner': {'label': 'Hermes supervisor'},
+            'stage': 'staging_verification',
+            'health': 'on_track',
+          },
+        ],
       },
-      'items': [
-        {
-          'key': 'COS-102',
-          'summary': 'Blocked work',
-          'jira_status': 'In Progress',
-          'priority': 'High',
-          'state': 'blocked',
-          'blockers': ['PR #22 has failed checks'],
-          'admission_signals': ['forge-ready'],
-          'pull_requests': [
-            {'number': 22, 'state': 'OPEN', 'draft': false},
-          ],
-          'active_run': null,
-          'staging_evidenced': false,
-        },
-        {
-          'key': 'COS-103',
-          'summary': 'Active in Jira',
-          'jira_status': 'In Progress',
-          'priority': 'Medium',
-          'state': 'running',
-          'execution_state': 'active',
-          'blockers': <String>[],
-          'staging_evidenced': false,
-        },
-      ],
     });
 
-    expect(snapshot.counts.active, 1);
-    expect(snapshot.counts.blocked, 1);
+    expect(snapshot.counts.independentReview, 1);
+    expect(snapshot.counts.stagingVerification, 1);
+    expect(snapshot.counts.needsManager, 1);
     expect(snapshot.items.first.key, 'COS-102');
-    expect(snapshot.items.first.blockers, ['PR #22 has failed checks']);
-    expect(snapshot.items.last.key, 'COS-103');
-    expect(snapshot.items.last.state, CosRunningOrderState.active);
-    expect(snapshot.stagingRevision, startsWith('9c351c0c'));
+    expect(snapshot.items.first.state, CosRunningOrderState.independentReview);
+    expect(snapshot.sourceStatus, 'fresh');
   });
 
-  test('derives the adapter URL from the active community relay', () {
+  test('fails closed for stale Delivery Room evidence', () {
+    expect(
+      () => CosRunningOrderSnapshot.fromJson({
+        'schemaVersion': 'mac-workspace/delivery-room/v1',
+        'readOnly': true,
+        'source': {'status': 'stale'},
+      }),
+      throwsFormatException,
+    );
+  });
+
+  test('derives the Delivery Room URL from the active community relay', () {
     expect(
       cosRunningOrderUri('wss://forge-do.tailfe35cd.ts.net/').toString(),
-      'https://forge-do.tailfe35cd.ts.net/api/cos-running-order/v1',
+      'https://forge-do.tailfe35cd.ts.net/api/mac-delivery-room/v1',
     );
     expect(
       cosRunningOrderUri('https://forge-do.tailfe35cd.ts.net/').toString(),
-      'https://forge-do.tailfe35cd.ts.net/api/cos-running-order/v1',
+      'https://forge-do.tailfe35cd.ts.net/api/mac-delivery-room/v1',
     );
   });
 }

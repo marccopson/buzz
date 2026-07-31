@@ -34,11 +34,29 @@ export function buildUnifiedGroups(
   return { groups, ungrouped, unknown };
 }
 
-export function pickProfileAgent(agents: ManagedAgent[]) {
+export function pickProfileAgent(
+  agents: ManagedAgent[],
+  personaDisplayName?: string,
+) {
+  const placeholderName = personaDisplayName?.trim().toLocaleLowerCase();
   return [...agents].sort((left, right) => {
     const activeDiff =
       Number(isManagedAgentActive(right)) - Number(isManagedAgentActive(left));
     if (activeDiff !== 0) return activeDiff;
+
+    // A persona can have both its starter placeholder (for example Bumble)
+    // and a real configured runtime (for example Maria). Prefer the configured
+    // identity so the unified card does not hide the agent operators recognise.
+    if (placeholderName) {
+      const leftIsPlaceholder =
+        left.name.trim().toLocaleLowerCase() === placeholderName;
+      const rightIsPlaceholder =
+        right.name.trim().toLocaleLowerCase() === placeholderName;
+      const placeholderDiff =
+        Number(leftIsPlaceholder) - Number(rightIsPlaceholder);
+      if (placeholderDiff !== 0) return placeholderDiff;
+    }
+
     return left.name.localeCompare(right.name);
   })[0];
 }

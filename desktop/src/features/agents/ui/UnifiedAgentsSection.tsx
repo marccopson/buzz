@@ -155,7 +155,10 @@ export function UnifiedAgentsSection(props: UnifiedAgentsSectionProps) {
         <div className="space-y-3" data-testid="unified-agents-groups">
           <div className={AGENT_CARD_GRID_CLASS}>
             {groups.map((group) => {
-              const profileAgent = pickProfileAgent(group.agents);
+              const profileAgent = pickProfileAgent(
+                group.agents,
+                group.persona.displayName,
+              );
               return (
                 <AgentPersonaCard
                   actions={(effectiveAvatarUrl, isEffectiveAvatarLoading) => (
@@ -272,7 +275,7 @@ function AgentPersonaCard({
   onStartAgent: (pubkey: string) => void;
   onStartPersona: (persona: AgentPersona) => void;
 }) {
-  const title = persona.displayName;
+  const title = agent?.name.trim() || persona.displayName;
   const modelLabel = resolveAgentCardModelLabel({
     agent,
     personaModel: persona.model,

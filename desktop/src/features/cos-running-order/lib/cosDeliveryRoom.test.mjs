@@ -320,6 +320,21 @@ test("expires the projection at the earliest source or presented evidence deadli
   }
 });
 
+test("ignores invalid evidence when calculating the projection expiry", () => {
+  const room = projectCosDeliveryRoom(envelope(), { now: NOW });
+  room.deliveryRoom.workItems[0].evidence.push({
+    ...evidence("unavailable-claim", "unknown"),
+    observedAt: "",
+    freshness: "invalid",
+    freshForMs: 7 * 24 * 60 * 60 * 1_000,
+  });
+
+  assert.equal(
+    cosDeliveryRoomExpiresAt(room),
+    new Date("2026-07-31T09:19:00.000Z").getTime(),
+  );
+});
+
 test("rejects unbounded or unsafe lifetimes and accepts the reviewed boundaries", () => {
   const hugeSourceLifetime = copy(envelope());
   hugeSourceLifetime.source.maxAgeSeconds = 1e308;

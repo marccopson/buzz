@@ -26,13 +26,11 @@ class CosRunningOrderNotifier extends AsyncNotifier<CosRunningOrderSnapshot> {
         .get(cosRunningOrderUri(relayUrl))
         .timeout(const Duration(seconds: 10));
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError(
-        'COS running order is unavailable (${response.statusCode})',
-      );
+      throw StateError('Delivery Room is unavailable (${response.statusCode})');
     }
     final payload = jsonDecode(response.body);
     if (payload is! Map) {
-      throw const FormatException('COS running order must be a JSON object');
+      throw const FormatException('Delivery Room must be a JSON object');
     }
     return CosRunningOrderSnapshot.fromJson(Map<String, dynamic>.from(payload));
   }

@@ -56,17 +56,17 @@ class HomePage extends HookConsumerWidget {
         selectedIcon: LucideIcons.search500,
         label: 'Search',
       ),
+      if (workspaceContext?.hasModule('running_order') == true)
+        const _HomeDestination(
+          icon: LucideIcons.listChecks300,
+          selectedIcon: LucideIcons.listChecks500,
+          label: 'Delivery',
+        ),
       if (workspaceContext?.canUseControlRoom == true)
         const _HomeDestination(
           icon: LucideIcons.gauge300,
           selectedIcon: LucideIcons.gauge500,
           label: 'Control',
-        )
-      else if (workspaceContext?.hasModule('running_order') == true)
-        const _HomeDestination(
-          icon: LucideIcons.listChecks300,
-          selectedIcon: LucideIcons.listChecks500,
-          label: 'COS',
         ),
       if (workspaceContext?.hasModule('my_actions') == true)
         const _HomeDestination(
@@ -79,10 +79,9 @@ class HomePage extends HookConsumerWidget {
       ChannelsPage(settingsPageBuilder: settingsPageBuilder),
       const ActivityPage(),
       const SearchPage(),
-      if (workspaceContext?.canUseControlRoom == true)
-        const ControlRoomPage()
-      else if (workspaceContext?.hasModule('running_order') == true)
+      if (workspaceContext?.hasModule('running_order') == true)
         const CosRunningOrderPage(),
+      if (workspaceContext?.canUseControlRoom == true) const ControlRoomPage(),
       if (workspaceContext?.hasModule('my_actions') == true)
         const CosFollowUpPage(),
     ];

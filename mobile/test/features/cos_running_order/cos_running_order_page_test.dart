@@ -29,55 +29,57 @@ void main() {
       requests += 1;
       expect(
         request.url.toString(),
-        'https://forge-do.tailfe35cd.ts.net/api/cos-running-order/v1',
+        'https://forge-do.tailfe35cd.ts.net/api/mac-delivery-room/v1',
       );
       return http.Response(
         jsonEncode({
-          'schema': 'mac-workspace/cos-running-order/v1',
-          'generated_at_utc': '2026-07-27T16:08:14Z',
-          'operational_status': 'ok',
-          'overall_status': 'degraded',
-          'staging_revision': 'a1b2c3d4e5f678901234567890abcdef',
-          'counts': {
-            'active': 7,
-            'agent_running': 1,
-            'blocked': 22,
-            'completed': 0,
-            'human_test': 1,
-            'queued': 96,
-            'ready': 0,
-            'running': 8,
+          'schemaVersion': 'mac-workspace/delivery-room/v1',
+          'generatedAt': '2026-07-31T16:08:14Z',
+          'readOnly': true,
+          'source': {'status': 'fresh'},
+          'deliveryRoom': {
+            'schemaVersion': 'delivery-room-projection/v1',
+            'attention': {
+              'needsManager': {
+                'workItemIds': ['COS-469'],
+              },
+              'blockedOrStalled': {
+                'workItemIds': ['COS-469'],
+              },
+            },
+            'workItems': [
+              {
+                'id': 'COS-469',
+                'externalReference': {'key': 'COS-469'},
+                'title': 'Complete the finance workflow',
+                'currentActivity': 'Draft pull request has merge conflicts.',
+                'nextAction': 'Resolve the candidate conflicts.',
+                'owner': {'label': 'Marc'},
+                'stage': 'independent_review',
+                'health': 'needs_manager',
+              },
+              {
+                'id': 'COS-588',
+                'externalReference': {'key': 'COS-588'},
+                'title': 'Awaiting review',
+                'currentActivity': 'Terra is reviewing the candidate.',
+                'nextAction': 'Record the verdict.',
+                'owner': {'label': 'Terra reviewer'},
+                'stage': 'independent_review',
+                'health': 'on_track',
+              },
+              {
+                'id': 'COS-700',
+                'externalReference': {'key': 'COS-700'},
+                'title': 'Completed work',
+                'currentActivity': 'Verified on staging.',
+                'nextAction': '',
+                'owner': {'label': 'Hermes'},
+                'stage': 'complete',
+                'health': 'on_track',
+              },
+            ],
           },
-          'items': [
-            {
-              'key': 'COS-469',
-              'summary': 'Complete the finance workflow',
-              'jira_status': 'In Progress',
-              'priority': 'High',
-              'state': 'blocked',
-              'blockers': ['Draft pull request has merge conflicts'],
-              'staging_evidenced': false,
-            },
-            {
-              'key': 'COS-588',
-              'summary': 'Awaiting review in Jira',
-              'jira_status': 'In Review',
-              'priority': 'Medium',
-              'state': 'running',
-              'execution_state': 'active',
-              'blockers': <String>[],
-              'staging_evidenced': false,
-            },
-            {
-              'key': 'COS-700',
-              'summary': 'Later queued work',
-              'jira_status': 'Backlog',
-              'priority': 'Low',
-              'state': 'queued',
-              'blockers': [],
-              'staging_evidenced': false,
-            },
-          ],
         }),
         200,
       );
@@ -101,13 +103,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('COS Running Order'), findsOneWidget);
-    expect(find.text('Collector healthy'), findsOneWidget);
-    expect(find.textContaining('Delivery degraded'), findsOneWidget);
+    expect(find.text('Delivery Room'), findsOneWidget);
+    expect(find.text('Evidence current'), findsOneWidget);
+    expect(find.textContaining('Read-only delivery view'), findsOneWidget);
     expect(find.text('COS-469'), findsOneWidget);
-    expect(find.text('Draft pull request has merge conflicts'), findsOneWidget);
-    expect(find.text('Jira active'), findsWidgets);
-    expect(find.text('COS-588'), findsOneWidget);
+    expect(
+      find.text('Draft pull request has merge conflicts.'),
+      findsOneWidget,
+    );
+    expect(find.text('Review'), findsWidgets);
     expect(find.text('COS-700'), findsNothing);
 
     final container = ProviderScope.containerOf(

@@ -18,17 +18,18 @@ class _RunningOrderBody extends StatelessWidget {
     final items = snapshot.items.where((item) {
       return switch (filter) {
         _RunningOrderFilter.focus =>
-          item.state != CosRunningOrderState.queued &&
-              item.state != CosRunningOrderState.completed,
-        _RunningOrderFilter.blocked =>
-          item.state == CosRunningOrderState.blocked,
-        _RunningOrderFilter.running =>
-          item.state == CosRunningOrderState.running,
-        _RunningOrderFilter.active => item.state == CosRunningOrderState.active,
+          item.state != CosRunningOrderState.completed ||
+              item.health != 'on_track',
+        _RunningOrderFilter.needsManager => item.health == 'needs_manager',
         _RunningOrderFilter.ready => item.state == CosRunningOrderState.ready,
-        _RunningOrderFilter.humanTest =>
-          item.state == CosRunningOrderState.humanTest,
-        _RunningOrderFilter.queued => item.state == CosRunningOrderState.queued,
+        _RunningOrderFilter.building =>
+          item.state == CosRunningOrderState.building,
+        _RunningOrderFilter.review =>
+          item.state == CosRunningOrderState.independentReview,
+        _RunningOrderFilter.verification =>
+          item.state == CosRunningOrderState.stagingVerification,
+        _RunningOrderFilter.complete =>
+          item.state == CosRunningOrderState.completed,
       };
     }).toList();
 
@@ -59,28 +60,28 @@ class _RunningOrderBody extends StatelessWidget {
                       label: 'Focus',
                     ),
                     FilterChipItem(
-                      id: _RunningOrderFilter.blocked,
-                      label: 'Blocked',
+                      id: _RunningOrderFilter.needsManager,
+                      label: 'Needs you',
                     ),
                     FilterChipItem(
-                      id: _RunningOrderFilter.running,
-                      label: 'Agent running',
+                      id: _RunningOrderFilter.building,
+                      label: 'Building',
                     ),
                     FilterChipItem(
-                      id: _RunningOrderFilter.active,
-                      label: 'Jira active',
+                      id: _RunningOrderFilter.review,
+                      label: 'Review',
                     ),
                     FilterChipItem(
                       id: _RunningOrderFilter.ready,
                       label: 'Ready',
                     ),
                     FilterChipItem(
-                      id: _RunningOrderFilter.humanTest,
-                      label: 'Test',
+                      id: _RunningOrderFilter.verification,
+                      label: 'Verify',
                     ),
                     FilterChipItem(
-                      id: _RunningOrderFilter.queued,
-                      label: 'Queue',
+                      id: _RunningOrderFilter.complete,
+                      label: 'Complete',
                     ),
                   ],
                 ),
@@ -120,7 +121,7 @@ class _HealthCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final healthy = snapshot.operationalStatus == 'ok';
+    final healthy = snapshot.sourceStatus == 'fresh';
     final colors = context.colors;
     final generated = snapshot.generatedAt == null
         ? 'Unknown'
@@ -149,21 +150,14 @@ class _HealthCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    healthy ? 'Collector healthy' : 'Collector needs attention',
+                    healthy ? 'Evidence current' : 'Evidence needs attention',
                     style: context.textTheme.titleSmall,
                   ),
                   const SizedBox(height: Grid.quarter),
                   Text(
-                    'Delivery ${snapshot.overallStatus} · Updated $generated',
+                    'Read-only delivery view · Updated $generated',
                     style: context.textTheme.bodySmall,
                   ),
-                  if (snapshot.stagingRevision case final revision?)
-                    Text(
-                      'Staging ${revision.substring(0, revision.length.clamp(0, 12))}',
-                      style: context.textTheme.bodySmall?.copyWith(
-                        fontFamily: 'monospace',
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -184,23 +178,32 @@ class _SummaryGrid extends StatelessWidget {
     return Row(
       children: [
         Expanded(
-          child: _SummaryValue(label: 'Blocked', value: counts.blocked),
+          child: _SummaryValue(label: 'Needs you', value: counts.needsManager),
         ),
         const SizedBox(width: Grid.half),
         Expanded(
-          child: _SummaryValue(label: 'Agent runs', value: counts.running),
+          child: _SummaryValue(label: 'Building', value: counts.building),
         ),
         const SizedBox(width: Grid.half),
         Expanded(
-          child: _SummaryValue(label: 'Jira active', value: counts.active),
+          child: _SummaryValue(
+            label: 'Review',
+            value: counts.independentReview,
+          ),
         ),
         const SizedBox(width: Grid.half),
         Expanded(
-          child: _SummaryValue(label: 'Ready', value: counts.ready),
+          child: _SummaryValue(
+            label: 'Verify',
+            value: counts.stagingVerification,
+          ),
         ),
         const SizedBox(width: Grid.half),
         Expanded(
-          child: _SummaryValue(label: 'Queued', value: counts.queued),
+          child: _SummaryValue(
+            label: 'Blocked',
+            value: counts.blockedOrStalled,
+          ),
         ),
       ],
     );
@@ -245,12 +248,10 @@ class _RunningOrderCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.colors;
     final stateLabel = switch (item.state) {
-      CosRunningOrderState.blocked => 'Blocked',
-      CosRunningOrderState.humanTest => 'Human test',
-      CosRunningOrderState.running => 'Agent running',
-      CosRunningOrderState.active => 'Jira active',
       CosRunningOrderState.ready => 'Ready',
-      CosRunningOrderState.queued => 'Queued',
+      CosRunningOrderState.building => 'Building',
+      CosRunningOrderState.independentReview => 'Independent review',
+      CosRunningOrderState.stagingVerification => 'Staging verification',
       CosRunningOrderState.completed => 'Completed',
     };
     return DecoratedBox(
@@ -278,28 +279,28 @@ class _RunningOrderCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: Grid.half),
-            Text(item.summary, style: context.textTheme.titleSmall),
+            Text(item.title, style: context.textTheme.titleSmall),
             const SizedBox(height: Grid.quarter),
             Text(
-              '${item.jiraStatus}${item.priority.isEmpty ? '' : ' · ${item.priority}'}',
+              '${item.owner.isEmpty ? 'Unassigned' : item.owner} · ${item.health.replaceAll('_', ' ')}',
               style: context.textTheme.bodySmall,
             ),
-            for (final blocker in item.blockers)
+            if (item.currentActivity.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: Grid.half),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      LucideIcons.triangleAlert,
-                      size: 16,
-                      color: colors.error,
-                    ),
-                    const SizedBox(width: Grid.half),
-                    Expanded(
-                      child: Text(blocker, style: context.textTheme.bodySmall),
-                    ),
-                  ],
+                child: Text(
+                  item.currentActivity,
+                  style: context.textTheme.bodyMedium,
+                ),
+              ),
+            if (item.nextAction.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: Grid.half),
+                child: Text(
+                  'Next: ${item.nextAction}',
+                  style: context.textTheme.bodySmall?.copyWith(
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
               ),
           ],
@@ -341,7 +342,7 @@ class _RunningOrderError extends StatelessWidget {
           children: [
             const Icon(LucideIcons.triangleAlert),
             const SizedBox(height: Grid.sm),
-            const Text('COS running order unavailable'),
+            const Text('Delivery Room unavailable'),
             const SizedBox(height: Grid.sm),
             FilledButton(onPressed: onRetry, child: const Text('Try again')),
           ],
