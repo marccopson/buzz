@@ -9,6 +9,9 @@ name: Windows Canary
 #   - pnpm store restore/save pattern mirrors ci.yml:149-196.
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - pilot/jake-windows-current
 
 permissions:
   contents: read
@@ -16,7 +19,7 @@ permissions:
 jobs:
   build:
     name: Build Windows canary
-    if: github.repository == 'block/buzz'
+    if: github.repository == 'marccopson/buzz'
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -24,13 +27,13 @@ jobs:
     env:
       TARGET: x86_64-pc-windows-msvc
     steps:
-      - name: Require main
+      - name: Require approved pilot branch
         shell: bash
         env:
           SOURCE_REF: ${{ github.ref }}
         run: |
-          if [[ "$SOURCE_REF" != "refs/heads/main" ]]; then
-            echo "::error::Canary builds must run from main; got $SOURCE_REF"
+          if [[ "$SOURCE_REF" != "refs/heads/pilot/jake-windows-current" ]]; then
+            echo "::error::Canary builds must run from the approved Jake pilot branch; got $SOURCE_REF"
             exit 1
           fi
 
