@@ -28,6 +28,7 @@ import {
   loadCosDeliveryRoom,
   teamThreadForWork,
 } from "@/features/cos-running-order/lib/cosDeliveryRoom";
+import { cosDeliveryRoomExpiryLatchScope } from "@/features/cos-running-order/lib/cosDeliveryRoomExpiryLatchStorage";
 import {
   formatDeliveryRoomTimestamp,
   latestCurrentEvidence,
@@ -37,6 +38,7 @@ import {
   PARTICIPANT_PRESENTATION,
 } from "@/features/cos-running-order/lib/cosDeliveryRoomUiPresentation";
 import { useCosDeliveryRoomExpiryLatch } from "@/features/cos-running-order/ui/useCosDeliveryRoomExpiryLatch";
+import { useIdentityQuery } from "@/shared/api/hooks";
 import { cn } from "@/shared/lib/cn";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -856,6 +858,7 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
 
 export function CosDeliveryRoomScreen() {
   const { activeCommunity } = useCommunities();
+  const identityQuery = useIdentityQuery();
   const deliveryRoomQuery = useQuery({
     queryKey: ["cos-delivery-room", activeCommunity?.relayUrl],
     queryFn: ({ signal }) =>
@@ -874,7 +877,12 @@ export function CosDeliveryRoomScreen() {
     ? cosDeliveryRoomExpiresAt(deliveryRoomQuery.data)
     : undefined;
   const generationId = deliveryRoomQuery.data?.generationId;
+  const expiryLatchScope = cosDeliveryRoomExpiryLatchScope(
+    activeCommunity?.relayUrl,
+    identityQuery.data?.pubkey,
+  );
   const evidenceExpired = useCosDeliveryRoomExpiryLatch(
+    expiryLatchScope,
     generationId,
     semanticExpiry,
   );

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { expect, test, type Page } from "@playwright/test";
 
 import { cosDeliveryRoomGenerationId } from "../../src/features/cos-running-order/lib/cosDeliveryRoom";
+import { COS_DELIVERY_ROOM_EXPIRY_LATCH_STORAGE_KEY } from "../../src/features/cos-running-order/lib/cosDeliveryRoomExpiryLatchStorage";
 import { waitForAnimations } from "../helpers/animations";
 import { installMockBridge } from "../helpers/bridge";
 
@@ -214,9 +215,29 @@ test("expired claims stay latched across clock rollback and a new generation rep
   page,
 }) => {
   await page.addInitScript(() => {
-    const systemNow = Date.now.bind(Date);
+    const SystemDate = Date;
+    const systemNow = SystemDate.now.bind(SystemDate);
     let offsetMs = 0;
-    Date.now = () => systemNow() + offsetMs;
+    const DeliveryRoomDate = new Proxy(SystemDate, {
+      apply(target, thisArg, argumentsList) {
+        if (argumentsList.length === 0) {
+          return new target(systemNow() + offsetMs).toString();
+        }
+        return Reflect.apply(target, thisArg, argumentsList);
+      },
+      construct(target, argumentsList, newTarget) {
+        return Reflect.construct(
+          target,
+          argumentsList.length === 0 ? [systemNow() + offsetMs] : argumentsList,
+          newTarget,
+        );
+      },
+      get(target, property, receiver) {
+        if (property === "now") return () => systemNow() + offsetMs;
+        return Reflect.get(target, property, receiver);
+      },
+    });
+    window.Date = DeliveryRoomDate;
     (
       window as typeof window & {
         __SET_DELIVERY_ROOM_CLOCK_OFFSET__: (value: number) => void;
@@ -228,7 +249,7 @@ test("expired claims stay latched across clock rollback and a new generation rep
   const expiredGeneration = await currentFixture();
   expiredGeneration.deliveryRoom.workItems.find(
     (item: { id: string }) => item.id === "COS-901",
-  ).evidence[0].freshForMs = 3_000;
+  ).evidence[0].freshForMs = 5_000;
   expiredGeneration.generationId =
     await cosDeliveryRoomGenerationId(expiredGeneration);
   let serveReplacement = false;
@@ -253,7 +274,7 @@ test("expired claims stay latched across clock rollback and a new generation rep
   await page.goto("/#/running-order");
   await expect(page.getByTestId("delivery-room-item-COS-901")).toBeVisible();
   await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible({
-    timeout: 6_000,
+    timeout: 10_000,
   });
   await expect(page.getByTestId("delivery-room-fail-closed")).toContainText(
     "Delivery Room evidence expired",
@@ -268,7 +289,23 @@ test("expired claims stay latched across clock rollback and a new generation rep
       window as typeof window & {
         __SET_DELIVERY_ROOM_CLOCK_OFFSET__: (value: number) => void;
       }
-    ).__SET_DELIVERY_ROOM_CLOCK_OFFSET__(-60 * 60 * 1_000);
+    ).__SET_DELIVERY_ROOM_CLOCK_OFFSET__(-10_000);
+    window.location.hash = "#/";
+  });
+  await expect(
+    page.getByRole("heading", { name: "Delivery Room", exact: true }),
+  ).toHaveCount(0);
+  await page.evaluate(() => {
+    window.location.hash = "#/running-order";
+  });
+  await expect(
+    page.getByRole("heading", { name: "Delivery Room", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible();
+  await expect(
+    page.locator("[data-testid^='delivery-room-item-']"),
+  ).toHaveCount(0);
+  await page.evaluate(() => {
     window.dispatchEvent(new Event("focus"));
     document.dispatchEvent(new Event("visibilitychange"));
   });
@@ -290,6 +327,25 @@ test("expired claims stay latched across clock rollback and a new generation rep
     page.getByText("Build the replacement signed Delivery Room projection"),
   ).toBeVisible();
   await expect(page.getByTestId("delivery-room-fail-closed")).toHaveCount(0);
+});
+
+test("malformed persisted expiry state fails closed without crashing", async ({
+  page,
+}) => {
+  await page.addInitScript((storageKey) => {
+    window.sessionStorage.setItem(storageKey, "{not-json");
+  }, COS_DELIVERY_ROOM_EXPIRY_LATCH_STORAGE_KEY);
+  await installMockBridge(page, { cosUserContext: "admin" });
+  await installDeliveryRoomRoute(page);
+
+  await page.goto("/#/running-order");
+  await expect(
+    page.getByRole("heading", { name: "Delivery Room", exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible();
+  await expect(
+    page.locator("[data-testid^='delivery-room-item-']"),
+  ).toHaveCount(0);
 });
 
 test("a stale refetch clears previously verified delivery claims", async ({

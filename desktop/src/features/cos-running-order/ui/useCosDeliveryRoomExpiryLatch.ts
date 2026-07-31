@@ -1,24 +1,51 @@
 import * as React from "react";
 
+import {
+  latchCosDeliveryRoomGenerationExpiry,
+  readCosDeliveryRoomGenerationExpiry,
+} from "@/features/cos-running-order/lib/cosDeliveryRoomExpiryLatchStorage";
+
+function deliveryRoomSessionStorage(): Storage | undefined {
+  try {
+    return window.sessionStorage;
+  } catch {
+    return undefined;
+  }
+}
+
 export function useCosDeliveryRoomExpiryLatch(
+  scope: string | undefined,
   generationId: string | undefined,
   semanticExpiry: number | undefined,
 ): boolean {
-  const [expiredGenerationIds, setExpiredGenerationIds] = React.useState<
-    ReadonlySet<string>
-  >(() => new Set());
+  const [, forcePersistenceRead] = React.useReducer(
+    (revision) => revision + 1,
+    0,
+  );
+  const storage = deliveryRoomSessionStorage();
+  const persistedStatus = generationId
+    ? readCosDeliveryRoomGenerationExpiry(storage, scope, generationId)
+    : "clear";
+  const evidenceExpired = Boolean(
+    generationId &&
+      (semanticExpiry === undefined ||
+        persistedStatus !== "clear" ||
+        Date.now() >= semanticExpiry),
+  );
 
   React.useEffect(() => {
-    if (semanticExpiry === undefined || generationId === undefined) return;
+    if (
+      semanticExpiry === undefined ||
+      generationId === undefined ||
+      persistedStatus !== "clear"
+    ) {
+      return;
+    }
 
     const checkFreshness = () => {
       if (Date.now() < semanticExpiry) return false;
-      setExpiredGenerationIds((current) => {
-        if (current.has(generationId)) return current;
-        const next = new Set(current);
-        next.add(generationId);
-        return next;
-      });
+      latchCosDeliveryRoomGenerationExpiry(storage, scope, generationId);
+      forcePersistenceRead();
       return true;
     };
     let timer: number | undefined;
@@ -39,7 +66,7 @@ export function useCosDeliveryRoomExpiryLatch(
       window.removeEventListener("focus", checkFreshness);
       document.removeEventListener("visibilitychange", checkFreshness);
     };
-  }, [generationId, semanticExpiry]);
+  }, [generationId, persistedStatus, scope, semanticExpiry, storage]);
 
-  return generationId ? expiredGenerationIds.has(generationId) : false;
+  return evidenceExpired;
 }
