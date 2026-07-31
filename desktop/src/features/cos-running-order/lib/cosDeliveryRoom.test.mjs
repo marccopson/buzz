@@ -248,6 +248,65 @@ test("counts only current actor-attributed participation and preserves quiet inv
   assert.equal(team?.signOff.status, "not_signed_off");
 });
 
+test("fails closed on duplicate fixed-room mappings while preserving reviewed optional mapping semantics", () => {
+  const canonicalTemplateIds = [
+    "senior-development-team",
+    "planning-council",
+    "board-of-advisors",
+  ];
+  const sourceTeam = envelope().deliveryRoom.teams[0];
+
+  for (const templateId of canonicalTemplateIds) {
+    const duplicate = copy(envelope());
+    duplicate.deliveryRoom.teams = [
+      { ...copy(sourceTeam), id: `${templateId}-one`, templateId },
+      { ...copy(sourceTeam), id: `${templateId}-two`, templateId },
+    ];
+    assert.throws(
+      () => projectCosDeliveryRoom(duplicate, { now: NOW }),
+      /team-room template mappings are duplicated/,
+    );
+  }
+
+  const fallbackCollision = copy(envelope());
+  fallbackCollision.deliveryRoom.teams = [
+    { ...copy(sourceTeam), id: "explicit-senior-team" },
+    { ...copy(sourceTeam), id: "senior-development-team" },
+  ];
+  delete fallbackCollision.deliveryRoom.teams[1].templateId;
+  assert.throws(
+    () => projectCosDeliveryRoom(fallbackCollision, { now: NOW }),
+    /team-room template mappings are duplicated/,
+  );
+
+  const unique = copy(envelope());
+  unique.deliveryRoom.teams = canonicalTemplateIds.map((templateId) => ({
+    ...copy(sourceTeam),
+    id: `${templateId}-instance`,
+    templateId,
+  }));
+  assert.equal(
+    projectCosDeliveryRoom(unique, { now: NOW }).deliveryRoom.teams.length,
+    3,
+  );
+
+  const absent = copy(envelope());
+  absent.deliveryRoom.teams[0].id = "unmapped-observation-room";
+  delete absent.deliveryRoom.teams[0].templateId;
+  assert.equal(
+    projectCosDeliveryRoom(absent, { now: NOW }).deliveryRoom.teams[0]
+      .templateId,
+    undefined,
+  );
+
+  const unknown = copy(envelope());
+  unknown.deliveryRoom.teams[0].templateId = "unknown-team-room";
+  assert.throws(
+    () => projectCosDeliveryRoom(unknown, { now: NOW }),
+    /templateId is unsupported/,
+  );
+});
+
 test("links a detailed card thread only through an explicit current evidence reference", () => {
   const result = projectCosDeliveryRoom(envelope(), { now: NOW });
   const team = result.deliveryRoom.teams[0];

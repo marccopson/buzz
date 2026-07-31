@@ -214,8 +214,14 @@ test("a stale refetch clears previously verified delivery claims", async ({
   page,
 }) => {
   let stale = false;
+  let requestCount = 0;
+  let acknowledgeRejectedResponse: (() => void) | undefined;
+  const rejectedResponseDelivered = new Promise<void>((resolve) => {
+    acknowledgeRejectedResponse = resolve;
+  });
   await installMockBridge(page, { cosUserContext: "admin" });
   await page.route("**/api/mac-delivery-room/v1", async (route) => {
+    requestCount += 1;
     const fixture = await currentFixture();
     if (stale) fixture.source.status = "stale";
     fixture.generationId = await cosDeliveryRoomGenerationId(fixture);
@@ -224,6 +230,7 @@ test("a stale refetch clears previously verified delivery claims", async ({
       contentType: "application/json",
       status: 200,
     });
+    if (stale) acknowledgeRejectedResponse?.();
   });
 
   await page.goto("/#/running-order");
@@ -231,7 +238,13 @@ test("a stale refetch clears previously verified delivery claims", async ({
   stale = true;
   await page.getByRole("button", { name: "Refresh Delivery Room" }).click();
 
+  await rejectedResponseDelivered;
+  await expect(
+    page.locator("[data-testid^='delivery-room-item-']"),
+  ).toHaveCount(0, { timeout: 500 });
   await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible();
+  await page.waitForTimeout(1_100);
+  expect(requestCount).toBe(2);
   await expect(
     page.locator("[data-testid^='delivery-room-item-']"),
   ).toHaveCount(0);

@@ -75,6 +75,14 @@ const TEMPLATE_IDS = new Set<DeliveryRoomTemplateId>([
 ]);
 const SHA256 = /^[0-9a-f]{64}$/;
 
+export function deliveryRoomTeamTemplateId(
+  team: Pick<DeliveryRoomTeam, "id" | "templateId">,
+): DeliveryRoomTemplateId | undefined {
+  if (team.templateId) return team.templateId;
+  const id = team.id as DeliveryRoomTemplateId;
+  return TEMPLATE_IDS.has(id) ? id : undefined;
+}
+
 function fail(message: string): never {
   throw new Error(`Delivery Room evidence is unverifiable: ${message}`);
 }
@@ -915,6 +923,13 @@ export function projectCosDeliveryRoom(
   );
   if (new Set(teams.map((team) => team.id)).size !== teams.length)
     fail("team IDs are duplicated");
+  const mappedTeamTemplates = teams
+    .map(deliveryRoomTeamTemplateId)
+    .filter((templateId): templateId is DeliveryRoomTemplateId =>
+      Boolean(templateId),
+    );
+  if (new Set(mappedTeamTemplates).size !== mappedTeamTemplates.length)
+    fail("team-room template mappings are duplicated");
   const teamTemplates = array(
     projection.teamTemplates,
     "deliveryRoom.teamTemplates",

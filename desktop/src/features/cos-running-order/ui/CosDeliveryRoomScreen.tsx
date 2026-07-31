@@ -23,6 +23,7 @@ import {
   type DeliveryRoomTeamTemplate,
   type DeliveryRoomWorkHealth,
   type DeliveryRoomWorkItem,
+  deliveryRoomTeamTemplateId,
   loadCosDeliveryRoom,
   teamThreadForWork,
 } from "@/features/cos-running-order/lib/cosDeliveryRoom";
@@ -332,8 +333,7 @@ function CardTeamThreads({
         {templates.map((template) => {
           const team = teams.find(
             (candidate) =>
-              candidate.templateId === template.id ||
-              candidate.id === template.id,
+              deliveryRoomTeamTemplateId(candidate) === template.id,
           );
           const thread = teamThreadForWork(team, item);
           const entries = [...thread.contributions, ...thread.dissent];
@@ -720,8 +720,7 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
       );
       if (!template) return null;
       const team = projection.teams.find(
-        (candidate) =>
-          candidate.templateId === template.id || candidate.id === template.id,
+        (candidate) => deliveryRoomTeamTemplateId(candidate) === template.id,
       );
       return { kind: "team", template, team };
     }
@@ -775,8 +774,7 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
           {projection.teamTemplates.map((template) => {
             const team = projection.teams.find(
               (candidate) =>
-                candidate.templateId === template.id ||
-                candidate.id === template.id,
+                deliveryRoomTeamTemplateId(candidate) === template.id,
             );
             return (
               <TeamRoomCard
@@ -865,6 +863,9 @@ export function CosDeliveryRoomScreen() {
       }),
     enabled: Boolean(activeCommunity?.relayUrl),
     refetchInterval: 60_000,
+    // A rejected signed projection is a trust-boundary failure. Retrying would
+    // leave the previously verified claims visible until the retry settles.
+    retry: false,
     staleTime: 30_000,
   });
 
