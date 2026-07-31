@@ -1,7 +1,6 @@
 import {
   COS_DELIVERY_ROOM_SCHEMA,
   type CosDeliveryRoom,
-  DELIVERY_ROOM_MAX_CLOCK_SKEW_MS,
   DELIVERY_ROOM_PROJECTION_SCHEMA,
   type AttentionView,
   type DeliveryRoomContribution,
@@ -20,6 +19,12 @@ import {
   type SourceEvidence,
 } from "./cosDeliveryRoomTypes.ts";
 import { verifyCosDeliveryRoomGeneration } from "./cosDeliveryRoomDigest.ts";
+import {
+  boundedDeliveryRoomLifetime,
+  calculatedDeliveryRoomFreshness,
+  DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+  deliveryRoomSourceLifetimeMs,
+} from "./cosDeliveryRoomExpiry.ts";
 import { REVIEWED_TEAM_TEMPLATES } from "./cosDeliveryRoomTemplates.ts";
 import { strictDeliveryRoomDate } from "./cosDeliveryRoomTime.ts";
 
@@ -116,13 +121,6 @@ function boolean(value: unknown, label: string): boolean {
   return value;
 }
 
-function integer(value: unknown, label: string): number {
-  if (!Number.isInteger(value) || (value as number) <= 0) {
-    return fail(`${label} must be a positive integer`);
-  }
-  return value as number;
-}
-
 function exactKeys(value: JsonRecord, allowed: string[], label: string): void {
   const extras = Object.keys(value).filter((key) => !allowed.includes(key));
   if (extras.length > 0) fail(`${label} contains unsupported fields`);
@@ -154,27 +152,15 @@ function parseDate(value: unknown, label: string): Date {
   return date;
 }
 
-function calculatedFreshness(
-  observedAt: unknown,
-  freshForMs: number,
-  now: Date,
-): DeliveryRoomEvidenceFreshness {
-  if (typeof observedAt !== "string" || observedAt.length === 0)
-    return "invalid";
-  const observed = strictDeliveryRoomDate(observedAt);
-  if (!observed) return "invalid";
-  const age = now.getTime() - observed.getTime();
-  if (age < -DELIVERY_ROOM_MAX_CLOCK_SKEW_MS) return "invalid";
-  return age <= freshForMs ? "current" : "stale";
-}
-
 function assertCurrent(
   observedAt: unknown,
   freshForMs: number,
   now: Date,
   label: string,
 ): string {
-  if (calculatedFreshness(observedAt, freshForMs, now) !== "current") {
+  if (
+    calculatedDeliveryRoomFreshness(observedAt, freshForMs, now) !== "current"
+  ) {
     return fail(`${label} is stale or invalid`);
   }
   return string(observedAt, label);
@@ -220,13 +206,23 @@ function parseEvidence(
     ["kind", "label", "actorId", "reference", "href"],
     `${label}.source`,
   );
-  const freshForMs = integer(raw.freshForMs, `${label}.freshForMs`);
+  const freshForMs = boundedDeliveryRoomLifetime(
+    raw.freshForMs,
+    1,
+    DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+  );
+  if (freshForMs === undefined)
+    fail(`${label}.freshForMs is outside the reviewed lifetime bound`);
   const declaredFreshness = enumValue(
     raw.freshness,
     new Set<DeliveryRoomEvidenceFreshness>(["current", "stale", "invalid"]),
     `${label}.freshness`,
   );
-  const actualFreshness = calculatedFreshness(raw.observedAt, freshForMs, now);
+  const actualFreshness = calculatedDeliveryRoomFreshness(
+    raw.observedAt,
+    freshForMs,
+    now,
+  );
   if (declaredFreshness !== actualFreshness)
     fail(`${label} freshness contradicts its timestamp`);
   const gateOutcome =
@@ -702,7 +698,7 @@ function parseTemplate(
 
 function parseSourceEvidence(
   value: unknown,
-  maxAgeSeconds: number,
+  sourceLifetimeMs: number,
   now: Date,
   label: string,
 ): SourceEvidence {
@@ -711,7 +707,7 @@ function parseSourceEvidence(
   if (raw.freshness !== "current") fail(`${label} is not current`);
   const observedAt = assertCurrent(
     raw.observedAt,
-    maxAgeSeconds * 1000,
+    sourceLifetimeMs,
     now,
     `${label}.observedAt`,
   );
@@ -781,25 +777,30 @@ export function projectCosDeliveryRoom(
     "source",
   );
   if (source.status !== "fresh") fail("the signed source is stale or invalid");
-  const maxAgeSeconds = integer(source.maxAgeSeconds, "source.maxAgeSeconds");
+  const sourceLifetimeMs = deliveryRoomSourceLifetimeMs(
+    source.maxAgeSeconds as number,
+  );
+  if (sourceLifetimeMs === undefined)
+    fail("source.maxAgeSeconds is outside the reviewed lifetime bound");
+  const maxAgeSeconds = source.maxAgeSeconds as number;
   const issues = uniqueStrings(source.issues, "source.issues");
   if (issues.length > 0)
     fail("the signed source reports reconciliation issues");
   const generatedAt = assertCurrent(
     raw.generatedAt,
-    maxAgeSeconds * 1000,
+    sourceLifetimeMs,
     now,
     "generatedAt",
   );
   const reconciliation = parseSourceEvidence(
     source.reconciliation,
-    maxAgeSeconds,
+    sourceLifetimeMs,
     now,
     "source.reconciliation",
   );
   const agentHealth = parseSourceEvidence(
     source.agentHealth,
-    maxAgeSeconds,
+    sourceLifetimeMs,
     now,
     "source.agentHealth",
   );

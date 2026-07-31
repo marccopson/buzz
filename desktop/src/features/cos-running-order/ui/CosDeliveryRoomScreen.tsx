@@ -36,6 +36,7 @@ import {
   HEALTH_PRESENTATION,
   PARTICIPANT_PRESENTATION,
 } from "@/features/cos-running-order/lib/cosDeliveryRoomUiPresentation";
+import { useCosDeliveryRoomExpiryLatch } from "@/features/cos-running-order/ui/useCosDeliveryRoomExpiryLatch";
 import { cn } from "@/shared/lib/cn";
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -855,7 +856,6 @@ function DeliveryRoomView({ room }: { room: CosDeliveryRoom }) {
 
 export function CosDeliveryRoomScreen() {
   const { activeCommunity } = useCommunities();
-  const [freshnessNow, setFreshnessNow] = React.useState(() => Date.now());
   const deliveryRoomQuery = useQuery({
     queryKey: ["cos-delivery-room", activeCommunity?.relayUrl],
     queryFn: ({ signal }) =>
@@ -873,34 +873,12 @@ export function CosDeliveryRoomScreen() {
   const semanticExpiry = deliveryRoomQuery.data
     ? cosDeliveryRoomExpiresAt(deliveryRoomQuery.data)
     : undefined;
-  const evidenceExpired =
-    semanticExpiry !== undefined && freshnessNow >= semanticExpiry;
+  const generationId = deliveryRoomQuery.data?.generationId;
+  const evidenceExpired = useCosDeliveryRoomExpiryLatch(
+    generationId,
+    semanticExpiry,
+  );
   const failClosed = deliveryRoomQuery.isError || evidenceExpired;
-
-  React.useEffect(() => {
-    if (semanticExpiry === undefined) return;
-
-    const checkFreshness = () => setFreshnessNow(Date.now());
-    let timer: number | undefined;
-    const scheduleCheck = () => {
-      const remainingMs = Math.max(semanticExpiry - Date.now(), 0);
-      timer = window.setTimeout(
-        () => {
-          checkFreshness();
-          if (Date.now() < semanticExpiry) scheduleCheck();
-        },
-        Math.min(remainingMs, 2_147_483_647),
-      );
-    };
-    scheduleCheck();
-    window.addEventListener("focus", checkFreshness);
-    document.addEventListener("visibilitychange", checkFreshness);
-    return () => {
-      if (timer !== undefined) window.clearTimeout(timer);
-      window.removeEventListener("focus", checkFreshness);
-      document.removeEventListener("visibilitychange", checkFreshness);
-    };
-  }, [semanticExpiry]);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">

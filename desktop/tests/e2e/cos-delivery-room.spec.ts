@@ -210,14 +210,39 @@ test("stale signed source hides all delivery claims", async ({ page }) => {
   ).toHaveCount(0);
 });
 
-test("current claims fail closed when their signed freshness expires", async ({
+test("expired claims stay latched across clock rollback and a new generation replaces them", async ({
   page,
 }) => {
+  await page.addInitScript(() => {
+    const systemNow = Date.now.bind(Date);
+    let offsetMs = 0;
+    Date.now = () => systemNow() + offsetMs;
+    (
+      window as typeof window & {
+        __SET_DELIVERY_ROOM_CLOCK_OFFSET__: (value: number) => void;
+      }
+    ).__SET_DELIVERY_ROOM_CLOCK_OFFSET__ = (value) => {
+      offsetMs = value;
+    };
+  });
+  const expiredGeneration = await currentFixture();
+  expiredGeneration.deliveryRoom.workItems.find(
+    (item: { id: string }) => item.id === "COS-901",
+  ).evidence[0].freshForMs = 3_000;
+  expiredGeneration.generationId =
+    await cosDeliveryRoomGenerationId(expiredGeneration);
+  let serveReplacement = false;
   await installMockBridge(page, { cosUserContext: "admin" });
   await page.route("**/api/mac-delivery-room/v1", async (route) => {
-    const fixture = await currentFixture();
-    fixture.source.maxAgeSeconds = 3;
-    fixture.generationId = await cosDeliveryRoomGenerationId(fixture);
+    const fixture = serveReplacement
+      ? await currentFixture()
+      : structuredClone(expiredGeneration);
+    if (serveReplacement) {
+      fixture.deliveryRoom.workItems.find(
+        (item: { id: string }) => item.id === "COS-901",
+      ).title = "Build the replacement signed Delivery Room projection";
+      fixture.generationId = await cosDeliveryRoomGenerationId(fixture);
+    }
     await route.fulfill({
       body: JSON.stringify(fixture),
       contentType: "application/json",
@@ -237,6 +262,34 @@ test("current claims fail closed when their signed freshness expires", async ({
     page.locator("[data-testid^='delivery-room-item-']"),
   ).toHaveCount(0);
   await expect(page.getByText("Signed source verified")).toHaveCount(0);
+
+  await page.evaluate(() => {
+    (
+      window as typeof window & {
+        __SET_DELIVERY_ROOM_CLOCK_OFFSET__: (value: number) => void;
+      }
+    ).__SET_DELIVERY_ROOM_CLOCK_OFFSET__(-60 * 60 * 1_000);
+    window.dispatchEvent(new Event("focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.setViewportSize({ height: 719, width: 1_279 });
+  await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible();
+  await expect(
+    page.locator("[data-testid^='delivery-room-item-']"),
+  ).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Refresh Delivery Room" }).click();
+  await expect(page.getByTestId("delivery-room-fail-closed")).toBeVisible();
+  await expect(
+    page.locator("[data-testid^='delivery-room-item-']"),
+  ).toHaveCount(0);
+
+  serveReplacement = true;
+  await page.getByRole("button", { name: "Refresh Delivery Room" }).click();
+  await expect(
+    page.getByText("Build the replacement signed Delivery Room projection"),
+  ).toBeVisible();
+  await expect(page.getByTestId("delivery-room-fail-closed")).toHaveCount(0);
 });
 
 test("a stale refetch clears previously verified delivery claims", async ({

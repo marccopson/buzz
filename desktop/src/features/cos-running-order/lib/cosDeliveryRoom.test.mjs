@@ -3,9 +3,14 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import {
+  calculatedDeliveryRoomFreshness,
+  checkedDeliveryRoomExpiryMs,
   cosDeliveryRoomEndpoint,
   cosDeliveryRoomExpiresAt,
   cosDeliveryRoomGenerationId,
+  DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+  DELIVERY_ROOM_MAX_SOURCE_AGE_SECONDS,
+  deliveryRoomSourceLifetimeMs,
   loadCosDeliveryRoom,
   projectCosDeliveryRoom,
   teamThreadForWork,
@@ -313,6 +318,91 @@ test("expires the projection at the earliest source or presented evidence deadli
     installEvidence(room);
     assert.equal(cosDeliveryRoomExpiresAt(room), evidenceDeadline);
   }
+});
+
+test("rejects unbounded or unsafe lifetimes and accepts the reviewed boundaries", () => {
+  const hugeSourceLifetime = copy(envelope());
+  hugeSourceLifetime.source.maxAgeSeconds = 1e308;
+  assert.throws(
+    () => projectCosDeliveryRoom(hugeSourceLifetime, { now: NOW }),
+    /source\.maxAgeSeconds is outside the reviewed lifetime bound/,
+  );
+
+  const hugeEvidenceLifetime = copy(envelope());
+  hugeEvidenceLifetime.deliveryRoom.workItems[1].evidence[0].freshForMs = 1e308;
+  assert.throws(
+    () => projectCosDeliveryRoom(hugeEvidenceLifetime, { now: NOW }),
+    /freshForMs is outside the reviewed lifetime bound/,
+  );
+
+  const boundary = copy(envelope());
+  boundary.source.maxAgeSeconds = DELIVERY_ROOM_MAX_SOURCE_AGE_SECONDS;
+  boundary.deliveryRoom.workItems[1].evidence[0].freshForMs =
+    DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS;
+  const projected = projectCosDeliveryRoom(boundary, { now: NOW });
+  assert.equal(
+    projected.deliveryRoom.workItems[1].evidence[0].freshForMs,
+    DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+  );
+  assert.equal(
+    checkedDeliveryRoomExpiryMs(
+      new Date(CURRENT).getTime(),
+      DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+    ),
+    new Date(CURRENT).getTime() + DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+  );
+  const boundaryExpiry =
+    new Date(CURRENT).getTime() + DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS;
+  assert.equal(
+    calculatedDeliveryRoomFreshness(
+      CURRENT,
+      DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+      new Date(boundaryExpiry),
+    ),
+    "current",
+  );
+  assert.equal(
+    calculatedDeliveryRoomFreshness(
+      CURRENT,
+      DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+      new Date(boundaryExpiry + 1),
+    ),
+    "stale",
+  );
+
+  const aboveSourceBoundary = copy(envelope());
+  aboveSourceBoundary.source.maxAgeSeconds =
+    DELIVERY_ROOM_MAX_SOURCE_AGE_SECONDS + 1;
+  assert.throws(
+    () => projectCosDeliveryRoom(aboveSourceBoundary, { now: NOW }),
+    /source\.maxAgeSeconds is outside the reviewed lifetime bound/,
+  );
+});
+
+test("rejects lifetime multiplication and timestamp addition overflow", () => {
+  assert.equal(deliveryRoomSourceLifetimeMs(1e308), undefined);
+  assert.equal(
+    checkedDeliveryRoomExpiryMs(Number.POSITIVE_INFINITY, 1),
+    undefined,
+  );
+  assert.equal(
+    checkedDeliveryRoomExpiryMs(0, Number.POSITIVE_INFINITY),
+    undefined,
+  );
+  assert.equal(
+    checkedDeliveryRoomExpiryMs(
+      Number.MAX_SAFE_INTEGER - DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS + 1,
+      DELIVERY_ROOM_MAX_EVIDENCE_LIFETIME_MS,
+    ),
+    undefined,
+  );
+  assert.equal(
+    checkedDeliveryRoomExpiryMs(
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER,
+    ),
+    undefined,
+  );
 });
 
 test("fails closed on duplicate fixed-room mappings while preserving reviewed optional mapping semantics", () => {
