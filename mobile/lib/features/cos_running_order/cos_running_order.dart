@@ -1,110 +1,117 @@
 enum CosRunningOrderState {
-  blocked,
-  humanTest,
-  running,
-  active,
   ready,
-  queued,
+  building,
+  independentReview,
+  stagingVerification,
   completed,
 }
 
 class CosRunningOrderCounts {
-  final int active;
-  final int blocked;
-  final int completed;
-  final int humanTest;
-  final int queued;
   final int ready;
-  final int running;
+  final int building;
+  final int independentReview;
+  final int stagingVerification;
+  final int completed;
+  final int needsManager;
+  final int blockedOrStalled;
 
   const CosRunningOrderCounts({
-    required this.active,
-    required this.blocked,
-    required this.completed,
-    required this.humanTest,
-    required this.queued,
     required this.ready,
-    required this.running,
+    required this.building,
+    required this.independentReview,
+    required this.stagingVerification,
+    required this.completed,
+    required this.needsManager,
+    required this.blockedOrStalled,
   });
-
-  factory CosRunningOrderCounts.fromJson(Map<String, dynamic> json) {
-    return CosRunningOrderCounts(
-      active: _integer(json['active']),
-      blocked: _integer(json['blocked']),
-      completed: _integer(json['completed']),
-      humanTest: _integer(json['human_test']),
-      queued: _integer(json['queued']),
-      ready: _integer(json['ready']),
-      running: _integer(json['agent_running'] ?? json['running']),
-    );
-  }
 }
 
 class CosRunningOrderItem {
   final String key;
-  final String summary;
-  final String jiraStatus;
-  final String priority;
+  final String title;
+  final String currentActivity;
+  final String nextAction;
+  final String owner;
   final CosRunningOrderState state;
-  final List<String> blockers;
-  final bool stagingEvidenced;
+  final String health;
 
   const CosRunningOrderItem({
     required this.key,
-    required this.summary,
-    required this.jiraStatus,
-    required this.priority,
+    required this.title,
+    required this.currentActivity,
+    required this.nextAction,
+    required this.owner,
     required this.state,
-    required this.blockers,
-    required this.stagingEvidenced,
+    required this.health,
   });
 
   factory CosRunningOrderItem.fromJson(Map<String, dynamic> json) {
+    final reference = _map(json['externalReference']);
+    final owner = _map(json['owner']);
     return CosRunningOrderItem(
-      key: _text(json['key']),
-      summary: _text(json['summary']),
-      jiraStatus: _text(json['jira_status']),
-      priority: _text(json['priority']),
-      state: _state(json['execution_state'] ?? json['state']),
-      blockers: _strings(json['blockers']),
-      stagingEvidenced: json['staging_evidenced'] == true,
+      key: _text(reference['key']).isEmpty
+          ? _text(json['id'])
+          : _text(reference['key']),
+      title: _text(json['title']),
+      currentActivity: _text(json['currentActivity']),
+      nextAction: _text(json['nextAction']),
+      owner: _text(owner['label']),
+      state: _state(json['stage']),
+      health: _text(json['health']),
     );
   }
 }
 
 class CosRunningOrderSnapshot {
   final DateTime? generatedAt;
-  final String operationalStatus;
-  final String overallStatus;
-  final String? stagingRevision;
+  final String sourceStatus;
   final CosRunningOrderCounts counts;
   final List<CosRunningOrderItem> items;
 
   const CosRunningOrderSnapshot({
     required this.generatedAt,
-    required this.operationalStatus,
-    required this.overallStatus,
-    required this.stagingRevision,
+    required this.sourceStatus,
     required this.counts,
     required this.items,
   });
 
   factory CosRunningOrderSnapshot.fromJson(Map<String, dynamic> json) {
-    if (json['schema'] != 'mac-workspace/cos-running-order/v1') {
-      throw const FormatException('Unsupported COS running-order snapshot');
+    if (json['schemaVersion'] != 'mac-workspace/delivery-room/v1' ||
+        json['readOnly'] != true) {
+      throw const FormatException('Unsupported Delivery Room snapshot');
     }
+    final source = _map(json['source']);
+    if (source['status'] != 'fresh') {
+      throw const FormatException('Delivery Room evidence is not current');
+    }
+    final room = _map(json['deliveryRoom']);
+    if (room['schemaVersion'] != 'delivery-room-projection/v1') {
+      throw const FormatException('Unsupported Delivery Room projection');
+    }
+    final items = _maps(room['workItems'])
+        .map(CosRunningOrderItem.fromJson)
+        .where((item) => item.key.isNotEmpty)
+        .toList();
+    int count(CosRunningOrderState state) =>
+        items.where((item) => item.state == state).length;
+    final attention = _map(room['attention']);
     return CosRunningOrderSnapshot(
-      generatedAt: DateTime.tryParse(_text(json['generated_at_utc'])),
-      operationalStatus: _text(json['operational_status']),
-      overallStatus: _text(json['overall_status']),
-      stagingRevision: _text(json['staging_revision']).isEmpty
-          ? null
-          : _text(json['staging_revision']),
-      counts: CosRunningOrderCounts.fromJson(_map(json['counts'])),
-      items: _maps(json['items'])
-          .map(CosRunningOrderItem.fromJson)
-          .where((item) => item.key.isNotEmpty)
-          .toList(),
+      generatedAt: DateTime.tryParse(_text(json['generatedAt'])),
+      sourceStatus: _text(source['status']),
+      counts: CosRunningOrderCounts(
+        ready: count(CosRunningOrderState.ready),
+        building: count(CosRunningOrderState.building),
+        independentReview: count(CosRunningOrderState.independentReview),
+        stagingVerification: count(CosRunningOrderState.stagingVerification),
+        completed: count(CosRunningOrderState.completed),
+        needsManager: _strings(
+          _map(attention['needsManager'])['workItemIds'],
+        ).length,
+        blockedOrStalled: _strings(
+          _map(attention['blockedOrStalled'])['workItemIds'],
+        ).length,
+      ),
+      items: items,
     );
   }
 }
@@ -120,37 +127,28 @@ Uri cosRunningOrderUri(String relayUrl) {
   };
   return relay.replace(
     scheme: scheme,
-    path: '/api/cos-running-order/v1',
+    path: '/api/mac-delivery-room/v1',
     query: null,
     fragment: null,
   );
 }
 
-Map<String, dynamic> _map(dynamic value) {
-  return value is Map ? Map<String, dynamic>.from(value) : {};
-}
+Map<String, dynamic> _map(dynamic value) =>
+    value is Map ? Map<String, dynamic>.from(value) : {};
 
-List<Map<String, dynamic>> _maps(dynamic value) {
-  return value is List ? value.map(_map).toList() : [];
-}
+List<Map<String, dynamic>> _maps(dynamic value) =>
+    value is List ? value.map(_map).toList() : [];
 
-List<String> _strings(dynamic value) {
-  return value is List ? value.whereType<String>().toList() : [];
-}
+List<String> _strings(dynamic value) =>
+    value is List ? value.whereType<String>().toList() : [];
 
 String _text(dynamic value) => value is String ? value : '';
 
-int _integer(dynamic value) => value is int ? value : 0;
-
-CosRunningOrderState _state(dynamic value) {
-  return switch (value) {
-    'blocked' => CosRunningOrderState.blocked,
-    'human-test' => CosRunningOrderState.humanTest,
-    'running' => CosRunningOrderState.running,
-    'active' => CosRunningOrderState.active,
-    'ready' => CosRunningOrderState.ready,
-    'queued' => CosRunningOrderState.queued,
-    'completed' => CosRunningOrderState.completed,
-    _ => throw const FormatException('Unsupported COS running-order state'),
-  };
-}
+CosRunningOrderState _state(dynamic value) => switch (value) {
+  'ready' => CosRunningOrderState.ready,
+  'building' => CosRunningOrderState.building,
+  'independent_review' => CosRunningOrderState.independentReview,
+  'staging_verification' => CosRunningOrderState.stagingVerification,
+  'complete' => CosRunningOrderState.completed,
+  _ => throw const FormatException('Unsupported Delivery Room stage'),
+};

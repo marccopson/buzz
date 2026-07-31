@@ -16,12 +16,12 @@ part 'cos_running_order_page/body.dart';
 
 enum _RunningOrderFilter {
   focus,
-  blocked,
-  running,
-  active,
+  needsManager,
   ready,
-  humanTest,
-  queued,
+  building,
+  review,
+  verification,
+  complete,
 }
 
 class CosRunningOrderPage extends StatelessWidget {
@@ -29,7 +29,7 @@ class CosRunningOrderPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const CosWorkspaceModuleGate(
-    title: 'COS Running Order',
+    title: 'Delivery Room',
     requiredModules: ['running_order'],
     child: _AuthorisedCosRunningOrderPage(),
   );
@@ -64,7 +64,7 @@ class _AuthorisedCosRunningOrderPage extends HookConsumerWidget {
     }
 
     return FrostedScaffold(
-      appBar: const FrostedAppBar(title: Text('COS Running Order')),
+      appBar: const FrostedAppBar(title: Text('Delivery Room')),
       body: SafeArea(
         top: false,
         child: Padding(

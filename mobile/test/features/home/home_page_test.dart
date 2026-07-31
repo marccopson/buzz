@@ -62,11 +62,13 @@ void main() {
     expect(find.text('Activity'), findsNothing);
     expect(find.text('Search'), findsNothing);
     expect(find.text('Control'), findsNothing);
+    expect(find.text('Delivery'), findsNothing);
     expect(find.text('My Actions'), findsNothing);
     expect(find.bySemanticsLabel('Home'), findsOneWidget);
     expect(find.bySemanticsLabel('Activity'), findsOneWidget);
     expect(find.bySemanticsLabel('Search'), findsOneWidget);
     expect(find.bySemanticsLabel('Control'), findsOneWidget);
+    expect(find.bySemanticsLabel('Delivery'), findsOneWidget);
     expect(find.bySemanticsLabel('My Actions'), findsOneWidget);
 
     final quickAction = find.byTooltip('Create or start conversation');
@@ -101,7 +103,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.bySemanticsLabel('Control'), findsNothing);
-    expect(find.bySemanticsLabel('COS'), findsNothing);
+    expect(find.bySemanticsLabel('Delivery'), findsNothing);
     expect(find.bySemanticsLabel('My Actions'), findsNothing);
     expect(find.bySemanticsLabel('Home'), findsOneWidget);
     expect(find.bySemanticsLabel('Activity'), findsOneWidget);
